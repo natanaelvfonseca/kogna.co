@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String   @map("owner_id")
+  planType  String   @default("basic") @map("plan_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users             User[]
+  whatsappInstances WhatsAppInstance[]
+  leads             Lead[]
+  iaConfigs         IaConfig[]
+
+  @@map("organizations")
+}
+
+model User {
+  id                  String   @id @default(uuid())
+  email               String   @unique
+  name                String?
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  createdAt           DateTime @default(now()) @map("created_at")
+  
+  organizationId String? @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  whatsappInstances WhatsAppInstance[]
+  leads             Lead[]
+  iaConfigs         IaConfig[]
+
+  @@map("users")
+}
+
+model WhatsAppInstance {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  organizationId String? @map("organization_id")
+  instanceName  String   @unique @map("instance_name")
+  instanceToken String   @map("instance_token")
+  status        String   @default("DISCONNECTED") // CONNECTED, DISCONNECTED
+  createdAt     DateTime @default(now()) @map("created_at")
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization  Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("whatsapp_instances")
+}
+
+model Lead {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  organizationId String? @map("organization_id")
+  name      String
+  company   String
+  value     Decimal  @db.Decimal(12, 2)
+  status    String   @default("new") // new, contacted, proposal, negotiation, closed, lost
+  tags      String[]
+  lastContact DateTime @default(now()) @map("last_contact")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("leads")
+}
+
+model IaConfig {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  organizationId  String?  @map("organization_id")
+  companyName     String   @map("company_name")
+  mainProduct     String   @map("main_product")
+  productPrice    Decimal? @db.Decimal(12, 2) @map("product_price")
+  agentObjective  String   @map("agent_objective") @db.Text
+  initialPrompt   String?  @map("initial_prompt") @db.Text
+  trainingFiles   Json?    @default("[]") @map("training_files")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("ia_configs")
+}
+

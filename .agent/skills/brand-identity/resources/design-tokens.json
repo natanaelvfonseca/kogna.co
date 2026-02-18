@@ -1,0 +1,29 @@
+{
+  "colors": {
+    "primary": "#FF4C00",
+    "accent": "#FF4C00",
+    "background": "#F9F9F9",
+    "text_primary": "#262626",
+    "link": "#FF4D00",
+    "muted_secondary": "#F4F4F5"
+  },
+  "typography": {
+    "headings": {
+      "family": "Geomanist",
+      "sizes": {
+        "h1": "60px",
+        "h2": "52px"
+      }
+    },
+    "body": {
+      "family": "Suisse",
+      "size": "16px"
+    }
+  },
+  "spacing": {
+    "base_unit": "4px"
+  },
+  "borders": {
+    "radius": "5px"
+  }
+}
