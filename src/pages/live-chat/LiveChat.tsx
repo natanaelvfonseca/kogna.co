@@ -71,7 +71,7 @@ export function LiveChat() {
                 const jid = activeChat.remoteJid || activeChat.id;
                 // Encode JID just in case (though mostly safe in path usually)
                 const res = await fetch(`/api/chat-context/${instanceName}/${encodeURIComponent(jid)}`, {
-                    headers: { 'Authorization': `Bearer ${token || 'mock-jwt-token-for-' + user.id}` }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -98,7 +98,7 @@ export function LiveChat() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token || 'mock-jwt-token-for-' + user?.id}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     agentId: currentAgentId,
@@ -120,18 +120,18 @@ export function LiveChat() {
     useEffect(() => {
         if (!user) return; // Wait for user
 
-        
+
         fetch('/api/instance', {
             headers: {
-                'Authorization': `Bearer ${token || 'mock-jwt-token-for-' + user.id}`
+                'Authorization': `Bearer ${token}`
             }
         })
             .then(res => {
-                
+
                 return res.json();
             })
             .then(data => {
-                
+
                 // Fix: Check for 'instance_name' (DB column style) as well as 'instanceName'
                 const name = data?.instanceName || data?.instance_name || data?.instance?.instanceName || data?.instance?.instance_name;
 
@@ -273,7 +273,7 @@ export function LiveChat() {
                 });
 
                 const deduplicatedChats = Array.from(chatMap.values());
-                
+
                 setChats(deduplicatedChats);
             }
         } catch (error) {
@@ -670,14 +670,14 @@ export function LiveChat() {
 
     const renderMessageContent = (msg: Message) => {
         // Debug: Log the entire message structure
-        
-        
-        
-        
-        
-        
-        
-        
+
+
+
+
+
+
+
+
 
         const textContent = msg.message?.conversation ||
             msg.message?.extendedTextMessage?.text ||
@@ -685,7 +685,7 @@ export function LiveChat() {
 
         // Render image
         if (msg.message?.imageMessage) {
-            
+
 
             let imageUrl = msg.message.imageMessage.url ||
                 msg.message.imageMessage.mediaUrl ||
@@ -697,7 +697,7 @@ export function LiveChat() {
                 imageUrl = `/api/media-proxy?url=${encodeURIComponent(imageUrl)}`;
             }
 
-            
+
 
             return (
                 <div className="flex flex-col gap-1">
@@ -719,7 +719,7 @@ export function LiveChat() {
 
         // Render audio
         if (msg.message?.audioMessage) {
-            
+
 
             let audioUrl = msg.message.audioMessage.url ||
                 msg.message.audioMessage.mediaUrl ||
@@ -731,7 +731,7 @@ export function LiveChat() {
                 audioUrl = `/api/media-proxy?url=${encodeURIComponent(audioUrl)}`;
             }
 
-            
+
 
             return (
                 <div className="flex flex-col gap-2">

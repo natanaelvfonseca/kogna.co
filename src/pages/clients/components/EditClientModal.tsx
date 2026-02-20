@@ -33,7 +33,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({ isOpen, onClos
 
     const fetchProducts = async () => {
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/products`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -50,7 +50,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({ isOpen, onClos
         e.preventDefault();
         setLoading(true);
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/leads/${client.id}`, {
                 method: 'PUT',
                 headers: {

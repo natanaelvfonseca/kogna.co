@@ -131,8 +131,16 @@ const checkDb = async () => {
 // --- AUTHENTICATION MIDDLEWARE ---
 
 const verifyJWT = (req, res, next) => {
+    if (req.url && req.url.includes('instances')) {
+        try { fs.appendFileSync('server_lifecycle.log', `[JWT_CHECK] Incoming ${req.method} ${req.url}\n`); } catch (e) { }
+    }
     const authHeader = req.headers['authorization'];
-    if (!authHeader) return res.status(401).json({ error: 'Nenhum token fornecido' });
+    if (!authHeader) {
+        if (req.url.includes('instances')) {
+            try { fs.appendFileSync('server_lifecycle.log', `[JWT_FAIL] No auth header for ${req.url}\n`); } catch (e) { }
+        }
+        return res.status(401).json({ error: 'Nenhum token fornecido' });
+    }
 
     const token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader;
 
@@ -265,6 +273,7 @@ app.post('/api/login', async (req, res) => {
         const user = result.rows[0];
 
         if (!user) {
+            log(`Login failed: User not found for email ${email}`);
             return res.status(401).json({ error: 'E-mail ou senha incorretos' });
         }
 
@@ -275,6 +284,7 @@ app.post('/api/login', async (req, res) => {
 
         const isValid = await bcrypt.compare(password, user.password);
         if (!isValid) {
+            log(`Login failed: Invalid password for ${email}`);
             return res.status(401).json({ error: 'E-mail ou senha incorretos' });
         }
 
@@ -302,6 +312,8 @@ app.post('/api/login', async (req, res) => {
             JWT_SECRET,
             { expiresIn: '24h' }
         );
+
+        log(`Login successful for ${email} (ID: ${user.id})`);
 
         res.json({
             user: { ...safeUser, organization },
@@ -592,6 +604,103 @@ async function triggerWebhooks(userId, event, payload) {
         log(`Trigger webhook error: ${err.message}`);
     }
 }
+
+// ==================== DASHBOARD API ====================
+
+app.get('/api/dashboard/metrics', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        // Get user's organization
+        const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
+        const organizationId = userRes.rows[0]?.organization_id;
+
+        if (!organizationId) {
+            // If no organization, return zeros
+            return res.json({
+                pipeline: { total_leads: 0, total_value: 0, won_value: 0, won_count: 0, appointments: 0 },
+                ai: { active_chats: 0, total_messages: 0, saved_hours: 0, chart: [] }
+            });
+        }
+
+        // 1. Pipeline Metrics
+        const pipelineQuery = await pool.query(`
+            SELECT 
+                COUNT(*) as total_leads,
+                COALESCE(SUM(value), 0) as total_value,
+                COUNT(CASE WHEN status IN ('closed', 'Fechado', 'Ganho', 'won') THEN 1 END) as won_count,
+                COALESCE(SUM(CASE WHEN status IN ('closed', 'Fechado', 'Ganho', 'won') THEN value ELSE 0 END), 0) as won_value
+            FROM leads 
+            WHERE organization_id = $1
+        `, [organizationId]);
+
+        const stats = pipelineQuery.rows[0];
+
+        // Appointments (Agendamentos)
+        const appointmentsQuery = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM agendamentos a
+            JOIN vendedores v ON v.id = a.vendedor_id
+            WHERE v.organization_id = $1 AND a.status != 'cancelado'
+        `, [organizationId]);
+
+        const appointmentsCount = parseInt(appointmentsQuery.rows[0]?.count || '0');
+
+        // 2. AI Metrics
+        const aiQuery = await pool.query(`
+            SELECT 
+                COUNT(*) as total_messages,
+                COUNT(DISTINCT remote_jid) as active_chats
+            FROM chat_messages cm
+            JOIN agents a ON a.id = cm.agent_id
+            WHERE a.organization_id = $1
+        `, [organizationId]);
+
+        const aiStats = aiQuery.rows[0];
+        const totalMessages = parseInt(aiStats.total_messages || '0');
+        const activeChats = parseInt(aiStats.active_chats || '0');
+        const savedHours = Math.round((totalMessages * 2) / 60); // Est. 2 mins saved per message
+
+        // 3. Chart Data (Last 7 days volume)
+        const chartQuery = await pool.query(`
+            SELECT 
+                TO_CHAR(cm.created_at, 'DD/MM') as date_label,
+                COUNT(*) as volume
+            FROM chat_messages cm
+            JOIN agents a ON a.id = cm.agent_id
+            WHERE a.organization_id = $1 
+              AND cm.created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY date_label, DATE(cm.created_at)
+            ORDER BY DATE(cm.created_at) ASC
+        `, [organizationId]);
+
+        const chartData = chartQuery.rows.map(row => ({
+            name: row.date_label,
+            volume: parseInt(row.volume)
+        }));
+
+        res.json({
+            pipeline: {
+                total_leads: parseInt(stats.total_leads),
+                total_value: parseFloat(stats.total_value),
+                won_value: parseFloat(stats.won_value),
+                won_count: parseInt(stats.won_count),
+                appointments: appointmentsCount
+            },
+            ai: {
+                active_chats: activeChats,
+                total_messages: totalMessages,
+                saved_hours: savedHours,
+                chart: chartData
+            }
+        });
+
+    } catch (err) {
+        log('GET /api/dashboard/metrics error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // ==================== INBOUND API (v1) ====================
 
@@ -1153,6 +1262,409 @@ app.put('/api/leads/:id', verifyJWT, async (req, res) => {
 
 // [REMOVED] Legacy product routes were here. Replaced by advanced implementation around line 5400.
 
+// ==================== USER & ONBOARDING API ====================
+
+// Get Current User Profile (for refreshUser)
+app.get('/api/me', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        const user = result.rows[0];
+
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        // Get Org
+        let organization = null;
+        if (user.organization_id) {
+            const orgRes = await pool.query('SELECT * FROM organizations WHERE id = $1', [user.organization_id]);
+            organization = orgRes.rows[0];
+        }
+
+        const { password: _, ...safeUser } = user;
+        res.json({ user: { ...safeUser, organization } });
+    } catch (err) {
+        log('Get Me error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Complete Onboarding & Reward Koins
+app.post('/api/onboarding/complete', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+
+        // Check current status
+        const userRes = await pool.query('SELECT onboarding_completed FROM users WHERE id = $1', [userId]);
+        const user = userRes.rows[0];
+
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        if (user.onboarding_completed) {
+            // Idempotent success
+            return res.json({ success: true, message: 'Already completed' });
+        }
+
+        // Update status and add reward (100 Koins)
+        await pool.query(
+            'UPDATE users SET onboarding_completed = true, koins_balance = koins_balance + 100 WHERE id = $1',
+            [userId]
+        );
+
+        log(`User ${userId} completed onboarding. Awarded 100 Koins.`);
+        res.json({ success: true, addedKoins: 100 });
+    } catch (err) {
+        log('Complete Onboarding error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Create Initial Agent (Onboarding)
+app.post('/api/onboarding/create-agent', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const {
+            templateId,
+            companyName,
+            aiName,
+            companyProduct,
+            targetAudience,
+            unknownBehavior,
+            voiceTone,
+            restrictions
+        } = req.body;
+
+        // 1. Get User's Org
+        const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
+        const orgId = userRes.rows[0]?.organization_id;
+
+        if (!orgId) return res.status(400).json({ error: 'User has no organization' });
+
+        // 2. Define Templates (Mirroring frontend logic)
+        const templates = {
+            'sdr': `Você é um SDR (Sales Development Representative) virtual chamado {{aiName}}.
+A empresa {{companyName}} vende: {{companyProduct}}.
+O público-alvo é: {{targetAudience}}.
+
+Tom de voz: {{voiceTone}}.
+
+REGRAS DE COMPORTAMENTO:
+1. Faça perguntas de qualificação para entender a necessidade do lead (orçamento, autoridade, necessidade, timing).
+2. Quando o lead estiver qualificado, proponha uma reunião ou demonstração.
+3. Nunca invente informações sobre o produto. Se não souber, diga que vai verificar.
+4. Use linguagem natural e evite parecer um robô.
+5. Responda sempre em português brasileiro.
+6. Mantenha as respostas curtas e objetivas (máximo 3 parágrafos).
+7. Se o lead não tiver interesse, agradeça e encerre educadamente.
+8. Quando não souber algo: {{unknownBehavior}}.
+
+RESTRIÇÕES (NUNCA FAZER):
+{{restrictions}}`,
+
+            'suporte': `Você é um agente de suporte ao cliente chamado {{aiName}} da empresa {{companyName}}.
+
+A empresa vende: {{companyProduct}}.
+O público-alvo é: {{targetAudience}}.
+
+Tom de voz: {{voiceTone}}.
+
+REGRAS DE COMPORTAMENTO:
+1. Seja empático, paciente e prestativo.
+2. Sempre tente resolver o problema do cliente antes de escalar.
+3. Use a base de conhecimento para responder dúvidas técnicas e frequentes.
+4. Nunca discuta com o cliente, mesmo se ele estiver errado.
+5. Confirme o entendimento do problema antes de propor soluções.
+6. Responda sempre em português brasileiro.
+7. Mantenha as respostas claras e objetivas.
+8. Ao final de cada interação, pergunte se há mais alguma coisa em que possa ajudar.
+9. Quando não souber algo: {{unknownBehavior}}.
+
+RESTRIÇÕES (NUNCA FAZER):
+{{restrictions}}`,
+
+            'vendedor': `Você é um vendedor consultivo chamado {{aiName}} da empresa {{companyName}}.
+
+A empresa vende: {{companyProduct}}.
+O público-alvo é: {{targetAudience}}.
+
+Tom de voz: {{voiceTone}}.
+
+REGRAS DE COMPORTAMENTO:
+1. Seja persuasivo mas nunca agressivo. Use técnicas de venda consultiva.
+2. Entenda a dor do cliente antes de apresentar a solução.
+3. Destaque benefícios, não funcionalidades. Mostre o valor antes do preço.
+4. Use gatilhos mentais naturais: escassez, prova social, autoridade.
+5. Quando o cliente demonstrar interesse, conduza para o fechamento.
+6. Trate objeções como oportunidades de esclarecer dúvidas.
+7. Nunca invente dados ou prometa o que o produto não faz.
+8. Responda sempre em português brasileiro.
+9. Sempre termine com um call-to-action claro.
+10. Quando não souber algo: {{unknownBehavior}}.
+
+RESTRIÇÕES (NUNCA FAZER):
+{{restrictions}}`
+        };
+
+        // Default or Fallback Template
+        const basePrompt = templates[templateId] || templates['sdr'];
+
+        // 3. Replace Placeholders
+        let system_prompt = basePrompt
+            .replace(/{{aiName}}/g, aiName || 'Assistente')
+            .replace(/{{companyName}}/g, companyName || 'nossa empresa')
+            .replace(/{{companyProduct}}/g, companyProduct || 'nossos produtos')
+            .replace(/{{targetAudience}}/g, targetAudience || 'clientes')
+            .replace(/{{voiceTone}}/g, voiceTone || 'profissional')
+            .replace(/{{unknownBehavior}}/g, unknownBehavior || 'pedirei um momento para verificar')
+            .replace(/{{restrictions}}/g, restrictions || 'Nenhuma restrição definida.');
+
+        // 4. Create Agent
+        const newAgent = await pool.query(
+            `INSERT INTO agents (organization_id, name, type, system_prompt, model_config, created_at) 
+             VALUES ($1, $2, 'whatsapp', $3, $4, NOW()) 
+             RETURNING id, name`,
+            [orgId, aiName, system_prompt, { model: 'gpt-4o-mini', temperature: 0.7 }]
+        );
+
+        log(`Onboarding Agent Created: ${newAgent.rows[0].id} for User ${userId}`);
+        res.json({ success: true, agent: newAgent.rows[0] });
+
+    } catch (err) {
+        log('Create Agent (Onboarding) error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ==================== NOTIFICATIONS API ====================
+
+// Get User Notifications
+app.get('/api/notifications', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const result = await pool.query(
+            'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20',
+            [userId]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        log('Get Notifications error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Mark Notification as Read
+app.put('/api/notifications/:id/read', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const { id } = req.params;
+
+        await pool.query(
+            'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
+            [id, userId]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        log('Mark Notification Read error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Create Notification (Internal Helper Route - Optional)
+app.post('/api/notifications', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const { title, message, type } = req.body;
+
+        const result = await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type) VALUES ($1, $2, $3, $4) RETURNING *`,
+            [userId, title, message, type || 'info']
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        log('Create Notification error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Check Onboarding Status
+app.get('/api/onboarding/status', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const result = await pool.query('SELECT onboarding_completed FROM users WHERE id = $1', [userId]);
+        if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
+
+        res.json({ completed: result.rows[0].onboarding_completed });
+    } catch (err) {
+        log('Onboarding status error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ==================== ADMIN DASHBOARD API ====================
+
+// Admin: Get Overview Stats (MRR, Revenue Chart)
+app.get('/api/admin/stats', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        // 1. Calculate MRR (Approximate based on recent billings + subscriptions)
+        // For this MVP, we sum up billing_history 'approved' transactions from the last 30 days
+        const mrrRes = await pool.query(`
+            SELECT SUM(value) as total 
+            FROM billing_history 
+            WHERE status = 'approved' 
+            AND created_at > NOW() - INTERVAL '30 days'
+        `);
+        const mrr = parseFloat(mrrRes.rows[0]?.total || 0);
+
+        // 2. Generate Chart Data (Last 6 months revenue)
+        const chartRes = await pool.query(`
+            SELECT TO_CHAR(created_at, 'Mon') as month, SUM(value) as revenue
+            FROM billing_history
+            WHERE status = 'approved'
+            AND created_at > NOW() - INTERVAL '6 months'
+            GROUP BY TO_CHAR(created_at, 'Mon'), DATE_TRUNC('month', created_at)
+            ORDER BY DATE_TRUNC('month', created_at) ASC
+        `);
+
+        // Fill in missing months if necessary (basic implementation)
+        const chartData = chartRes.rows.map(r => ({
+            month: r.month,
+            revenue: parseFloat(r.revenue)
+        }));
+
+        res.json({
+            mrr,
+            chartData
+        });
+    } catch (err) {
+        log('Admin stats error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: Get All Users
+app.get('/api/admin/users', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const users = await pool.query(`
+            SELECT u.id, u.name, u.email, u.koins_balance, u.created_at, u.role,
+                   o.name as company_name, o.plan_type
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            ORDER BY u.created_at DESC
+        `);
+        res.json(users.rows);
+    } catch (err) {
+        log('Admin users list error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: Get Consumption Stats
+app.get('/api/admin/consumption', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        // Aggregate token usage per user (via agents)
+        // Link: chat_messages -> agents -> organizations -> users (owner)
+        // Note: This assumes simplified ownership model where org owner pays.
+        const consumptions = await pool.query(`
+            SELECT 
+                u.name as user_name,
+                COALESCE(SUM(cm.prompt_tokens), 0) as total_prompt_tokens,
+                COALESCE(SUM(cm.completion_tokens), 0) as total_completion_tokens,
+                COALESCE(SUM(cm.token_cost), 0) as total_cost,
+                -- Estimate Koins spent (assuming 1 Koin = $0.0001 roughly, or specific rate)
+                -- For display, we can just use a multiplier or track actual koins deducted if we had that log
+                -- Let's assume 1000 tokens ~ 100 Koins for visualization
+                CAST(COALESCE(SUM(cm.prompt_tokens + cm.completion_tokens) / 10, 0) AS INTEGER) as estimated_koins_spent
+            FROM users u
+            JOIN organizations o ON u.organization_id = o.id
+            JOIN agents a ON a.organization_id = o.id
+            JOIN chat_messages cm ON cm.agent_id = a.id
+            GROUP BY u.id, u.name
+            ORDER BY total_cost DESC
+            LIMIT 50
+        `);
+
+        res.json(consumptions.rows);
+    } catch (err) {
+        log('Admin consumption error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: Update User Koins
+app.patch('/api/admin/users/:id/koins', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { amount } = req.body;
+        const userId = req.params.id;
+
+        if (!amount) return res.status(400).json({ error: 'Invalid amount' });
+
+        await pool.query(
+            'UPDATE users SET koins_balance = koins_balance + $1 WHERE id = $2',
+            [amount, userId]
+        );
+
+        log(`Admin adjusted koins for user ${userId} by ${amount}`);
+        res.json({ success: true });
+    } catch (err) {
+        log('Admin koin update error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: Create User manually
+app.post('/api/admin/users', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const { email, name, role } = req.body;
+
+        // Check if exists
+        const exists = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (exists.rows.length > 0) {
+            return res.status(400).json({ error: 'Email já cadastrado' });
+        }
+
+        const tempPassword = Math.random().toString(36).slice(-8);
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+        const newUser = await pool.query(
+            `INSERT INTO users (id, name, email, password, role, created_at, koins_balance, onboarding_completed) 
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), 50, true) 
+             RETURNING id, name, email`,
+            [name, email, hashedPassword, role || 'user']
+        );
+
+        // Create Org
+        const user = newUser.rows[0];
+        const newOrg = await pool.query(
+            `INSERT INTO organizations (name, owner_id, plan_type) VALUES ($1, $2, 'basic') RETURNING id`,
+            [name + "'s Organization", user.id]
+        );
+        await pool.query('UPDATE users SET organization_id = $1 WHERE id = $2', [newOrg.rows[0].id, user.id]);
+
+        log(`Admin created user ${email}. Temp pass: ${tempPassword}`);
+        res.json({ user, tempPassword });
+    } catch (err) {
+        log('Admin create user error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin: Delete User
+app.delete('/api/admin/users/:id', verifyJWT, verifyAdmin, async (req, res) => {
+    try {
+        const userId = req.params.id;
+        // Cascade delete would be better in DB, but manual cleanup for safety
+        // Delete users org
+        // For MVP, letting DB foreign keys handle cascade or error if strictly bound
+        // Check DB schema: users linked to orgs.
+
+        await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+        log(`Admin deleted user ${userId}`);
+        res.json({ success: true });
+    } catch (err) {
+        log('Admin delete user error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // Admin: List all partners
 app.get('/api/admin/partners', verifyJWT, verifyAdmin, async (req, res) => {
     try {
@@ -1261,9 +1773,9 @@ app.post('/api/admin/partners', verifyJWT, verifyAdmin, async (req, res) => {
 });
 
 // Admin: Update partner (approve/reject, change commission %)
-app.put('/api/admin/partners/:id', async (req, res) => {
+app.put('/api/admin/partners/:id', verifyJWT, verifyAdmin, async (req, res) => {
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         const adminCheck = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
@@ -1364,9 +1876,9 @@ async function confirmPartnerCommissions(userId) {
 // ==================== ONBOARDING ENDPOINTS ====================
 
 // Get Onboarding Status
-app.get('/api/onboarding/status', async (req, res) => {
+app.get('/api/onboarding/status', verifyJWT, async (req, res) => {
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         const result = await pool.query('SELECT onboarding_completed FROM users WHERE id = $1', [userId]);
@@ -1380,9 +1892,9 @@ app.get('/api/onboarding/status', async (req, res) => {
 });
 
 // Complete Onboarding
-app.post('/api/onboarding/complete', async (req, res) => {
+app.post('/api/onboarding/complete', verifyJWT, async (req, res) => {
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         // Grant 100 Koins and mark onboarding as completed
@@ -1408,9 +1920,9 @@ app.post('/api/onboarding/complete', async (req, res) => {
 });
 
 // Create Agent from Onboarding template
-app.post('/api/onboarding/create-agent', async (req, res) => {
+app.post('/api/onboarding/create-agent', verifyJWT, async (req, res) => {
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         const { templateId, companyName, aiName, companyProduct, targetAudience, unknownBehavior, voiceTone, restrictions } = req.body;
@@ -1446,9 +1958,9 @@ Restrições: ${restrictions || 'Nenhuma restrição definida.'}`;
 });
 
 // Get Current User API
-app.get('/api/me', async (req, res) => {
+app.get('/api/me', verifyJWT, async (req, res) => {
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         const result = await pool.query(
@@ -1488,13 +2000,13 @@ app.get('/api/me', async (req, res) => {
 });
 
 // Update Profile API
-app.put('/api/profile/update', async (req, res) => {
+app.put('/api/profile/update', verifyJWT, async (req, res) => {
     const { name, email, companyName, personalPhone, companyPhone } = req.body;
     // Log incoming data
     log(`[PROFILE UPDATE] Request Body: ${JSON.stringify(req.body)}`);
 
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         log(`[PROFILE UPDATE] User ID extracted: ${userId}`);
 
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -1534,10 +2046,10 @@ app.put('/api/profile/update', async (req, res) => {
 });
 
 // Change Password API
-app.put('/api/profile/change-password', async (req, res) => {
+app.put('/api/profile/change-password', verifyJWT, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     try {
-        const userId = await getUserId(req);
+        const userId = req.userId;
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         if (!newPassword || newPassword.length < 6) {
@@ -1713,7 +2225,8 @@ const getAuthenticatedUserId = async (req) => {
 
 // Admin Middleware
 const isAdmin = async (req, res, next) => {
-    const userId = await getAuthenticatedUserId(req);
+    // Ensure verifyJWT has run
+    const userId = req.userId;
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     const result = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
@@ -1766,14 +2279,79 @@ const getUserByEmail = async (email) => {
     }
 };
 
+// Helper: Ensure User has Organization and Default Columns (Self-Healing)
+const ensureUserInitialized = async (userId) => {
+    try {
+        // 1. Check Org
+        let userRes = await pool.query('SELECT organization_id, email FROM users WHERE id = $1', [userId]);
+        let user = userRes.rows[0];
+        if (!user) return;
+
+        let orgId = user.organization_id;
+
+        if (!orgId) {
+            log(`[INIT] User ${userId} has no Org. Creating one...`);
+            const orgRes = await pool.query(
+                "INSERT INTO organizations (name) VALUES ($1) RETURNING id",
+                [`Org for ${user.email}`]
+            );
+            orgId = orgRes.rows[0].id;
+            await pool.query("UPDATE users SET organization_id = $1 WHERE id = $2", [orgId, userId]);
+            log(`[INIT] Created and assigned Org ${orgId} to User ${userId}`);
+        }
+
+        // 2. Check Columns
+        const colsRes = await pool.query('SELECT id FROM lead_columns WHERE organization_id = $1 LIMIT 1', [orgId]);
+        if (colsRes.rows.length === 0) {
+            log(`[INIT] User ${userId} (Org ${orgId}) has no columns. Creating defaults...`);
+            const defaultColumns = [
+                { title: 'Novos Leads', color: '#3b82f6', order_index: 0, is_system: true },
+                { title: 'Em Contato', color: '#f59e0b', order_index: 1, is_system: false },
+                { title: 'Qualificado', color: '#8b5cf6', order_index: 2, is_system: false },
+                { title: 'Proposta Enviada', color: '#06b6d4', order_index: 3, is_system: false },
+                { title: 'Agendamento Feito', color: '#10b981', order_index: 4, is_system: true },
+            ];
+            for (const col of defaultColumns) {
+                await pool.query(
+                    'INSERT INTO lead_columns (organization_id, title, color, order_index, is_system) VALUES ($1, $2, $3, $4, $5)',
+                    [orgId, col.title, col.color, col.order_index, col.is_system]
+                );
+            }
+            log(`[INIT] Default columns created.`);
+        }
+
+        // 3. Check Sources (Optional but good)
+        const sourcesRes = await pool.query('SELECT id FROM lead_sources WHERE organization_id = $1 LIMIT 1', [orgId]);
+        if (sourcesRes.rows.length === 0) {
+            log(`[INIT] Creating default sources...`);
+            const defaultSources = [
+                { name: 'Facebook', is_system: true },
+                { name: 'Instagram', is_system: true },
+                { name: 'Google', is_system: true },
+                { name: 'Indicação', is_system: false },
+                { name: 'WhatsApp', is_system: false },
+                { name: 'Site', is_system: false },
+            ];
+            for (const src of defaultSources) {
+                await pool.query(
+                    'INSERT INTO lead_sources (organization_id, name, is_system) VALUES ($1, $2, $3)',
+                    [orgId, src.name, src.is_system]
+                );
+            }
+        }
+
+    } catch (err) {
+        log(`[INIT ERROR] ensureUserInitialized failed for ${userId}: ${err.message}`);
+    }
+};
+
 // --- AGENTS API ---
 // Moved to top to avoid shadowing issues
 
 // GET Agents
-app.get('/api/whatsapp/instances', async (req, res) => {
+app.get('/api/whatsapp/instances', verifyJWT, async (req, res) => {
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
         const orgId = userRes.rows[0]?.organization_id;
@@ -1797,11 +2375,10 @@ app.get('/api/whatsapp/instances', async (req, res) => {
     }
 });
 
-app.get('/api/agents', async (req, res) => {
+app.get('/api/agents', verifyJWT, async (req, res) => {
     log('[DEBUG] GET /api/agents entry');
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
         const orgId = userRes.rows[0]?.organization_id;
@@ -1824,10 +2401,9 @@ app.get('/api/agents', async (req, res) => {
 });
 
 // GET Company Data (from onboarding ia_configs)
-app.get('/api/company-data', async (req, res) => {
+app.get('/api/company-data', verifyJWT, async (req, res) => {
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         const result = await pool.query(
             `SELECT company_name, main_product, agent_objective FROM ia_configs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -1865,7 +2441,7 @@ app.get('/api/company-data', async (req, res) => {
 });
 
 // POST Agent
-app.post('/api/agents', async (req, res) => {
+app.post('/api/agents', verifyJWT, async (req, res) => {
     const { name, type, system_prompt, model_config } = req.body;
     log(`[DEBUG] POST /api/agents entry. Body: ${JSON.stringify(req.body)}`);
 
@@ -1874,9 +2450,8 @@ app.post('/api/agents', async (req, res) => {
     }
 
     try {
-        const userId = await getAuthenticatedUserId(req);
+        const userId = req.userId;
         log(`[DEBUG] Authenticated User ID: ${userId}`);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         // Get Org ID
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
@@ -1910,16 +2485,15 @@ app.post('/api/agents', async (req, res) => {
 });
 
 // DELETE Agent
-app.delete('/api/agents/:id', async (req, res) => {
+app.delete('/api/agents/:id', verifyJWT, async (req, res) => {
     const { id } = req.params;
     log(`[DEBUG] DELETE /api/agents/:id entry. ID: ${id}`);
 
     if (!id) return res.status(400).json({ error: 'Agent ID is required' });
 
     try {
-        const userId = await getAuthenticatedUserId(req);
+        const userId = req.userId;
         log(`[DEBUG] DELETE /api/agents Authenticated User ID: ${userId}`);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
         // Get Org ID
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
@@ -1949,15 +2523,14 @@ app.delete('/api/agents/:id', async (req, res) => {
 });
 
 // UPDATE Agent (Configuration)
-app.put('/api/agents/:id', async (req, res) => {
+app.put('/api/agents/:id', verifyJWT, async (req, res) => {
     const { id } = req.params;
     const { name, type, system_prompt, model_config, status, whatsapp_instance_id } = req.body;
 
     if (!id) return res.status(400).json({ error: 'Agent ID is required' });
 
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
         const orgId = userRes.rows[0]?.organization_id;
@@ -2014,15 +2587,31 @@ app.put('/api/agents/:id', async (req, res) => {
     }
 });
 
+// GET /api/instance - Get Primary WhatsApp Instance Status (for Onboarding)
+app.get('/api/instance', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const result = await pool.query('SELECT * FROM whatsapp_instances WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1', [userId]);
+
+        if (result.rows.length === 0) {
+            return res.json({ status: 'disconnected', qrCode: null });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        log('[ERROR] GET /api/instance error: ' + err.toString());
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
 // UPLOAD Training Files for Agent
-app.post('/api/agents/:id/upload', upload.array('files'), async (req, res) => {
+app.post('/api/agents/:id/upload', verifyJWT, upload.array('files'), async (req, res) => {
     const { id } = req.params;
 
     if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
 
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         // Org Check
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
@@ -2063,11 +2652,10 @@ app.post('/api/agents/:id/upload', upload.array('files'), async (req, res) => {
 });
 
 // TOGGLE AGENT PAUSE (Global)
-app.post('/api/agents/:id/toggle-pause', async (req, res) => {
+app.post('/api/agents/:id/toggle-pause', verifyJWT, async (req, res) => {
     const { id } = req.params;
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         // Get current status
         const agentRes = await pool.query('SELECT status FROM agents WHERE id = $1', [id]);
@@ -2087,11 +2675,10 @@ app.post('/api/agents/:id/toggle-pause', async (req, res) => {
 });
 
 // TOGGLE CHAT PAUSE (Local)
-app.post('/api/chats/toggle-pause', async (req, res) => {
+app.post('/api/chats/toggle-pause', verifyJWT, async (req, res) => {
     const { agentId, remoteJid } = req.body;
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         // Upsert ChatSession
         // Check if exists
@@ -2141,11 +2728,10 @@ app.get('/api/chats/status/:agentId/:remoteJid', async (req, res) => {
 });
 
 // GET CHAT CONTEXT (Agent Info + Pause Status)
-app.get('/api/chat-context/:instanceName/:remoteJid', async (req, res) => {
+app.get('/api/chat-context/:instanceName/:remoteJid', verifyJWT, async (req, res) => {
     const { instanceName, remoteJid } = req.params;
     try {
-        const userId = await getAuthenticatedUserId(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+        const userId = req.userId;
 
         // Find Agent by Instance Name
         const agentRes = await pool.query(`
@@ -2181,7 +2767,138 @@ app.get('/api/chat-context/:instanceName/:remoteJid', async (req, res) => {
     }
 });
 
+
+// ==================== ADMIN ENDPOINTS ====================
+
+// GET Admin Stats
+app.get('/api/admin/stats', isAdmin, async (req, res) => {
+    try {
+        // Calculate MRR based on organizations plan_type.
+        // Simplified Logic: Basic = 97, Pro/Scale = 297 (Adjust as needed)
+        const orgsRes = await pool.query("SELECT plan_type FROM organizations");
+        let mrr = 0;
+        orgsRes.rows.forEach(org => {
+            if (org.plan_type === 'basic') mrr += 97;
+            else if (org.plan_type === 'pro' || org.plan_type === 'scale') mrr += 297;
+        });
+
+        // Chart Data: Aggregate revenue from billing_history for last 6 months
+        // Mock data logic for now as billing_history might be empty
+        const chartData = [
+            { month: 'Jan', revenue: mrr * 0.8 },
+            { month: 'Fev', revenue: mrr * 0.9 },
+            { month: 'Mar', revenue: mrr * 0.95 },
+            { month: 'Abr', revenue: mrr },
+            { month: 'Mai', revenue: mrr * 1.1 },
+            { month: 'Jun', revenue: mrr * 1.2 }
+        ];
+
+
+        log(`[DEBUG] Admin Stats Hit. MRR: ${mrr}, ChartData Length: ${chartData.length}`);
+        res.json({ mrr, chartData });
+
+    } catch (err) {
+        log('GET /api/admin/stats error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET Admin Users
+app.get('/api/admin/users', isAdmin, async (req, res) => {
+    try {
+        const query = `
+            SELECT u.id, u.name, u.email, u.koins_balance, u.created_at, u.role, 
+                   o.name as company_name, o.plan_type
+            FROM users u
+            LEFT JOIN organizations o ON u.organization_id = o.id
+            ORDER BY u.created_at DESC
+        `;
+        const result = await pool.query(query);
+        res.json(result.rows);
+    } catch (err) {
+        log('GET /api/admin/users error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET Admin Consumption
+app.get('/api/admin/consumption', isAdmin, async (req, res) => {
+    try {
+        // Aggregate token usage by user/organization
+        const query = `
+            SELECT 
+                u.name as user_name,
+                o.name as company_name,
+                SUM(cm.prompt_tokens) as total_prompt_tokens,
+                SUM(cm.completion_tokens) as total_completion_tokens,
+                SUM(cm.token_cost) as total_cost,
+                SUM(cm.token_cost) * 1000 as estimated_koins_spent -- Mock conversion
+            FROM chat_messages cm
+            JOIN agents a ON cm.agent_id = a.id
+            JOIN organizations o ON a.organization_id = o.id
+            LEFT JOIN users u ON u.organization_id = o.id
+            GROUP BY u.name, o.name
+            ORDER BY total_cost DESC
+            LIMIT 50
+        `;
+        const result = await pool.query(query);
+        res.json(result.rows);
+    } catch (err) {
+        log('GET /api/admin/consumption error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin Actions: Update Koins
+app.patch('/api/admin/users/:id/koins', isAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { amount } = req.body; // Positive to add, negative to remove
+
+    try {
+        const result = await pool.query(
+            'UPDATE users SET koins_balance = koins_balance + $1 WHERE id = $2 RETURNING koins_balance',
+            [amount, id]
+        );
+        res.json({ success: true, newBalance: result.rows[0].koins_balance });
+    } catch (err) {
+        log('PATCH /api/admin/users/:id/koins error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin Actions: Create User
+app.post('/api/admin/users', isAdmin, async (req, res) => {
+    const { name, email, role } = req.body;
+    try {
+        const check = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+        if (check.rows.length > 0) return res.status(400).json({ error: 'Email already exists' });
+
+        const newUser = await pool.query(
+            `INSERT INTO users (id, name, email, role, created_at) 
+             VALUES (gen_random_uuid(), $1, $2, $3, NOW()) RETURNING *`,
+            [name, email, role || 'user']
+        );
+        res.json(newUser.rows[0]);
+    } catch (err) {
+        log('POST /api/admin/users error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Admin Actions: Delete User
+app.delete('/api/admin/users/:id', isAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM users WHERE id = $1', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        log('DELETE /api/admin/users/:id error: ' + err.toString());
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 // --- Leads Table Migration (self-healing) ---
+
 async function ensureLeadsColumns() {
     try {
         const check = await pool.query(
@@ -2958,6 +3675,120 @@ app.get('/api/instance', async (req, res) => {
     }
 });
 
+// FAILS_SAFE DEBUG ENDPOINT
+app.get('/api/debug-connection', async (req, res) => {
+    try {
+        const email = 'natanael@kogna.co';
+        const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        const user = userRes.rows[0] || { error: 'User not found' };
+
+        const instancesByUser = await pool.query('SELECT * FROM whatsapp_instances WHERE user_id = $1', [user.id]);
+        const instancesByOrg = user.organization_id
+            ? await pool.query('SELECT * FROM whatsapp_instances WHERE organization_id = $1', [user.organization_id])
+            : { rows: [] };
+
+        res.json({
+            user,
+            instances_by_user_id: instancesByUser.rows,
+            instances_by_org_id: instancesByOrg.rows
+        });
+    } catch (e) {
+        res.json({ error: e.message });
+    }
+});
+
+// GET /api/instances - List all instances (for multi-connection users)
+app.get('/api/instances', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const orgRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
+        const orgId = orgRes.rows[0]?.organization_id;
+
+        if (!orgId) {
+            // Fallback: If user has no Org, return instances owned by User (if any)
+            const fallback = await pool.query('SELECT * FROM whatsapp_instances WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+            return res.json(fallback.rows);
+        }
+
+        // 1. Fetch by Org
+        const instancesQuery = 'SELECT * FROM whatsapp_instances WHERE organization_id = $1 ORDER BY created_at DESC';
+        let result = await pool.query(instancesQuery, [orgId]);
+
+        const debugMsg = `[DEBUG_INSTANCES] User: ${userId}, Org: ${orgId}, Found: ${result.rows.length}`;
+        log(debugMsg);
+        try { fs.appendFileSync('server_lifecycle.log', debugMsg + '\n'); } catch (e) { }
+
+        // 2. SELF-HEALING: If no instances found by Org, check if User has "orphaned" instances and link them
+        if (result.rows.length === 0) {
+            const userInstances = await pool.query('SELECT * FROM whatsapp_instances WHERE user_id = $1 AND (organization_id IS NULL OR organization_id != $2)', [userId, orgId]);
+
+            const healMsg = `[DEBUG_HEAL] Orphaned Candidates: ${userInstances.rows.length}`;
+            log(healMsg);
+            try { fs.appendFileSync('server_lifecycle.log', healMsg + '\n'); } catch (e) { }
+
+            if (userInstances.rows.length > 0) {
+                log(`[SELF-HEAL] Found ${userInstances.rows.length} orphaned instances for User ${userId}. Linking to Org ${orgId}...`);
+
+                // Fix them
+                await pool.query('UPDATE whatsapp_instances SET organization_id = $1 WHERE user_id = $2', [orgId, userId]);
+
+                // Fetch again
+                result = await pool.query('SELECT * FROM whatsapp_instances WHERE organization_id = $1 ORDER BY created_at DESC', [orgId]);
+            }
+        }
+
+        // Return list immediately. 
+        // Note: Real-time status depends on Webhook. 
+        // For 'connecting' status (QR code scan), we depend on connection.update event.
+        res.json(result.rows);
+    } catch (err) {
+        log('GET /api/instances error: ' + err.toString());
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// REPAIR ENDPOINT
+app.post('/api/repair-connection', verifyJWT, async (req, res) => {
+    try {
+        const userId = req.userId;
+        log(`[REPAIR] Request from user ${userId}`);
+
+        // 1. Get User & Org
+        const userRes = await pool.query('SELECT organization_id, email FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        const user = userRes.rows[0];
+        const orgId = user.organization_id;
+
+        if (!orgId) {
+            // Try to find if user owns an org but it's not linked in users table (rare)
+            // For now, just fail or maybe create one? 
+            // Let's create one if missing, just like ensureUserInitialized
+            const newOrg = await pool.query("INSERT INTO organizations (name, plan_type) VALUES ($1, 'pro') RETURNING id", [`Org of ${user.email}`]);
+            await pool.query('UPDATE users SET organization_id = $1 WHERE id = $2', [newOrg.rows[0].id, userId]);
+            log(`[REPAIR] Created missing org for user ${userId}`);
+            return res.json({ message: 'Organization created. Refreshed.', fixed: true });
+        }
+
+        // 2. Fix Instances
+        const result = await pool.query(
+            'UPDATE whatsapp_instances SET organization_id = $1 WHERE user_id = $2 AND (organization_id IS NULL OR organization_id != $1) RETURNING instance_name',
+            [orgId, userId]
+        );
+
+        if (result.rows.length > 0) {
+            log(`[REPAIR] Fixed ${result.rows.length} instances for user ${userId}`);
+            return res.json({ message: `Fixed ${result.rows.length} connections.`, fixed: true });
+        }
+
+        return res.json({ message: 'No issues found.', fixed: false });
+
+    } catch (e) {
+        log(`[REPAIR] Error: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/instance', async (req, res) => {
     const { instanceName, token, status } = req.body;
     log(`POST /api/instance: ${instanceName}`);
@@ -2970,7 +3801,15 @@ app.post('/api/instance', async (req, res) => {
     if (!limits.allowed) {
         return res.status(403).json({ error: limits.message, upgradeRequired: true });
     }
-    const organizationId = limits.orgId; // Might be undefined if user has no org
+    const organizationId = limits.orgId; // Will be set if checkPlanLimits found an Org
+
+    if (!organizationId) {
+        // Double check if user has org, because checkPlanLimits might return allowed:true even without org if logic says so (e.g. for basic plan)
+        const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
+        if (!userRes.rows[0]?.organization_id) {
+            return res.status(400).json({ error: 'User has no organization. Please contact support.' });
+        }
+    }
 
     // Only check 1 instance per user/org for now to be safe
     const existing = await pool.query('SELECT * FROM whatsapp_instances WHERE user_id = $1 LIMIT 1', [userId]);
@@ -2987,9 +3826,12 @@ app.post('/api/instance', async (req, res) => {
         // This endpoint is more for manual creation/linking, so we'll use a generic name or the provided one.
         const finalInstanceName = instanceName || `kogna_${userId.substring(0, 8)}`;
 
+        // Ensure organization_id is passed. limits.orgId should have it.
+        const orgIdToUse = organizationId || (await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId])).rows[0]?.organization_id;
+
         const result = await pool.query(
             'INSERT INTO whatsapp_instances (user_id, instance_name, instance_token, status, organization_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [userId, finalInstanceName, token || '', status || 'DISCONNECTED', organizationId]
+            [userId, finalInstanceName, token || '', status || 'DISCONNECTED', orgIdToUse]
         );
         log('Instance created: ' + result.rows[0].id);
         res.json(result.rows[0]);
@@ -3195,6 +4037,9 @@ app.get('/api/leads', async (req, res) => {
     try {
         const userId = await getUserId(req);
         if (!userId) return res.json([]);
+
+        // Ensure initialization (Self-Healing)
+        await ensureUserInitialized(userId);
 
         // Fetch user's org
         const userRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
@@ -3495,6 +4340,165 @@ app.delete('/api/settings/sources/:id', async (req, res) => {
 app.use((err, req, res, next) => {
     log('Global Error Handler: ' + err.toString());
     console.error(err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+});
+
+// POST /api/evolution/webhook - Global Webhook for Evolution API
+app.post('/api/evolution/webhook', async (req, res) => {
+    const apiKey = req.headers['apikey'] || req.query.apiKey;
+    const evolutionApiKey = process.env.EVOLUTION_API_KEY || '';
+
+    // 1. Verify API Key
+    if (!apiKey || apiKey !== evolutionApiKey) {
+        log('[WEBHOOK] Unauthorized access attempt: ' + apiKey);
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const body = req.body;
+        const instanceName = body.instance || body.sender || 'unknown';
+        const type = body.type;
+
+        // log(`[WEBHOOK] Received event: ${type} from ${instanceName}`); // Verbose
+
+        // 2. Filter: Process 'messages.upsert', 'message', OR 'connection.update'
+        if (type === 'connection.update') {
+            const state = (body.data?.state || body.data?.connectionState || '').toLowerCase();
+            log(`[WEBHOOK] Connection Update for ${instanceName}: ${state}`);
+
+            // Map Evolution state to our DB status
+            let dbStatus = 'DISCONNECTED';
+            if (state === 'open' || state === 'connected') dbStatus = 'CONNECTED';
+            else if (state === 'connecting') dbStatus = 'connecting'; // optional, keep 'qrcode' or update?
+            else if (state === 'close') dbStatus = 'DISCONNECTED';
+
+            // If connected, update DB
+            if (dbStatus === 'CONNECTED') {
+                await pool.query(
+                    'UPDATE whatsapp_instances SET status = $1, last_checked = NOW() WHERE instance_name = $2',
+                    ['CONNECTED', instanceName]
+                );
+                log(`[WEBHOOK] Updated instance ${instanceName} to CONNECTED`);
+            } else if (dbStatus === 'DISCONNECTED') {
+                await pool.query(
+                    'UPDATE whatsapp_instances SET status = $1 WHERE instance_name = $2',
+                    ['DISCONNECTED', instanceName]
+                );
+                log(`[WEBHOOK] Updated instance ${instanceName} to DISCONNECTED`);
+            }
+
+            return res.status(200).send('OK');
+        }
+
+        if (type !== 'messages.upsert' && type !== 'message') {
+            return res.status(200).send('OK');
+        }
+
+        const data = body.data;
+        if (!data || !data.key || data.key.fromMe) {
+            return res.status(200).send('OK'); // Ignore own messages
+        }
+
+        const remoteJid = data.key.remoteJid;
+        const pushName = data.pushName || 'Unknown';
+
+        // Extract content (Text or Image)
+        let content = '';
+        let imageUrl = null;
+        let isAudio = false;
+
+        const messageType = data.messageType;
+
+        if (messageType === 'conversation') {
+            content = data.message?.conversation || '';
+        } else if (messageType === 'extendedTextMessage') {
+            content = data.message?.extendedTextMessage?.text || '';
+        } else if (messageType === 'imageMessage') {
+            content = data.message?.imageMessage?.caption || '[IMAGE]';
+            // Extract base64 if available, or URL. Evolution usually provides base64 in a separate field or requires media fetch.
+            // For now, let's just mark it. Detailed implementation might need another call to get the media.
+            // But if 'base64' is present in the payload:
+            if (data.message.base64) {
+                // imageUrl = ... logic to save or pass base64
+                // For now, we skip heavy media logic to avoid complexities, unless requested.
+            }
+        } else if (messageType === 'audioMessage') {
+            isAudio = true;
+            content = '[AUDIO]';
+            // Similar to image, would need media handling.
+        }
+
+        if (!content && !isAudio) {
+            return res.status(200).send('OK');
+        }
+
+        log(`[WEBHOOK] Message from ${remoteJid} (${pushName}): ${content.substring(0, 50)}...`);
+
+        // 3. Find the Agent linked to this Instance
+        // We need to find which agent is using this `instanceName`.
+        // The `whatsapp_instances` table maps instanceName -> user_id
+        // The `agents` table maps whatsapp_instance_id -> agent details
+
+        // However, the `instanceName` from webhook might match the `instance_name` column in `whatsapp_instances`.
+
+        const instanceRes = await pool.query('SELECT id, user_id FROM whatsapp_instances WHERE instance_name = $1', [instanceName]);
+        if (instanceRes.rows.length === 0) {
+            log(`[WEBHOOK] Instance '${instanceName}' not found in DB.`);
+            return res.status(200).send('OK');
+        }
+
+        const instanceId = instanceRes.rows[0].id;
+        const userId = instanceRes.rows[0].user_id;
+
+        // Find Active Agent for this instance
+        const agentRes = await pool.query('SELECT * FROM agents WHERE whatsapp_instance_id = $1 AND status = \'active\' LIMIT 1', [instanceId]);
+        if (agentRes.rows.length === 0) {
+            log(`[WEBHOOK] No active agent found for instance ${instanceName} (ID: ${instanceId}).`);
+            return res.status(200).send('OK');
+        }
+
+        const agent = agentRes.rows[0];
+
+        // 4. Log User Message to DB
+        // Check if message already exists (dedup by ID if possible, but simplest is just insert)
+        // Evolution sends 'id' in data.key.id
+        const msgId = data.key.id;
+
+        // Optional: Check duplication
+        // const dupCheck = await pool.query('SELECT id FROM chat_messages WHERE metadata->>\'whatsapp_id\' = $1', [msgId]);
+
+        const inputMessage = {
+            role: 'user',
+            content: content,
+            imageUrl: imageUrl, // logic TBD
+            isAudio: isAudio,
+            metadata: { pushName, whatsapp_id: msgId }
+        };
+
+        await pool.query(
+            `INSERT INTO chat_messages (agent_id, remote_jid, role, content) 
+             VALUES ($1, $2, 'user', $3)`,
+            [agent.id, remoteJid, content]
+        );
+
+        // 5. Trigger AI Processing
+        // We pass the message content directly to `processAIResponse` 
+        // Note: `processAIResponse` fetches history, so we just inserted it.
+        // But we should pass it as `inputMessages` argument to let it know what triggered it.
+
+        await processAIResponse(agent, remoteJid, instanceName, [inputMessage]);
+
+        res.status(200).send('OK');
+
+    } catch (err) {
+        log('[WEBHOOK] Error: ' + err.toString());
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Final Error Handler
+app.use((err, req, res, next) => {
+    console.error(err.stack);
     res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
 
@@ -5671,6 +6675,8 @@ app.get('/api/payments/verify/:paymentId', verifyJWT, async (req, res) => {
     }
 });
 
+
+
 // --- PRODUCT MANAGEMENT API ---
 
 // GET /api/public/products/:id - Get product details for checkout (Public)
@@ -5689,6 +6695,8 @@ app.get('/api/public/products/:id', async (req, res) => {
         res.status(500).json({ error: 'Database error' });
     }
 });
+
+
 
 // GET /api/products - List all products (Admin only)
 app.get('/api/products', verifyJWT, verifyAdmin, async (req, res) => {
@@ -6912,9 +7920,66 @@ setInterval(async () => {
 app.use('/uploads', express.static('uploads'));
 
 // Start Server
-app.listen(port, '0.0.0.0', () => {
-    log(`Server running on port ${port}`);
-});
+// Export for Vercel
+export default app;
+
+// --- ONE-TIME FIX FOR NATANAEL ---
+const fixNatanaelData = async () => {
+    try {
+        log('--- RUNNING NATANAEL FIX ---');
+        const email = 'natanael@kogna.co';
+        const userRes = await pool.query('SELECT id, organization_id FROM users WHERE email = $1', [email]);
+
+        if (userRes.rows.length === 0) {
+            log('Natanael user not found.');
+            return;
+        }
+
+        const user = userRes.rows[0];
+        const orgId = user.organization_id;
+
+        log(`Natanael Found: ID=${user.id}, OrgID=${orgId}`);
+
+        if (orgId) {
+            const res = await pool.query(
+                `UPDATE whatsapp_instances 
+                 SET organization_id = $1 
+                 WHERE user_id = $2 AND (organization_id IS NULL OR organization_id != $1)
+                 RETURNING *`,
+                [orgId, user.id]
+            );
+            log(`Updated ${res.rows.length} instances for Natanael.`);
+            res.rows.forEach(r => log(` - Fixed Instance: ${r.instance_name}`));
+        } else {
+            log('Natanael has no Org ID, cannot fix instances.');
+        }
+        log('--- FIX COMPLETE ---');
+    } catch (err) {
+        log('Fix Error: ' + err.message);
+    }
+};
+
+// Run the fix after a short delay to ensure DB connection
+setTimeout(fixNatanaelData, 5000);
+
+// Start Server only if running directly
+// Start Server unconditional
+// Start Server unconditional with direct file logging
+const PORT = process.env.PORT || 3000;
+try {
+    fs.appendFileSync('server_lifecycle.log', `[${new Date().toISOString()}] Attempting to start server on port ${PORT}\n`);
+    app.listen(PORT, '0.0.0.0', () => {
+        const msg = `[${new Date().toISOString()}] Server running on port ${PORT} (Environment: ${process.env.NODE_ENV})`;
+        log(msg);
+        console.log(msg);
+        fs.appendFileSync('server_lifecycle.log', msg + '\n');
+    });
+} catch (e) {
+    const errMsg = `[${new Date().toISOString()}] FAILED to start server: ${e.message}`;
+    log(errMsg);
+    console.error(errMsg);
+    fs.appendFileSync('server_lifecycle.log', errMsg + '\n');
+}
 
 // Force Keep-Alive
 setInterval(() => {

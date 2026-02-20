@@ -39,7 +39,7 @@ export function AdminProducts() {
     const [showDebugModal, setShowDebugModal] = useState(false);
     const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
 
-    const apiBase = 'http://127.0.0.1:3000';
+    const apiBase = '';
 
     useEffect(() => {
         fetchProducts();

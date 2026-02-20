@@ -28,7 +28,7 @@ export function Checkout() {
     const [mpReady, setMpReady] = useState(false);
     const mpRef = useRef<any>(null);
     const fetchedRef = useRef(false);
-    const apiBase = 'http://127.0.0.1:3000';
+    const apiBase = '';
 
     // Card form state
     const [cardNumber, setCardNumber] = useState('');
@@ -65,7 +65,7 @@ export function Checkout() {
             details
         };
         setLogs(prev => [newLog, ...prev]);
-        
+
     };
 
     // PIX state
@@ -173,7 +173,7 @@ export function Checkout() {
                 if (results && results.length > 0) {
                     setPaymentMethodId(results[0].id);
                     // If we needed issuer, we would fetch it here too, but for simple checkout usually brand is enough
-                    
+
                 }
             })
             .catch((err: any) => console.error('[CHECKOUT] Error getting payment method:', err));
@@ -283,7 +283,7 @@ export function Checkout() {
             });
 
             const result = await response.json();
-            
+
             addLog('info', 'Resposta do processamento de pagamento', result);
 
             setPaymentResult(result);
@@ -352,7 +352,7 @@ export function Checkout() {
             });
 
             const result = await response.json();
-            
+
             addLog('info', 'Resultado da criação do PIX', result);
 
             if (result.point_of_interaction?.transaction_data) {

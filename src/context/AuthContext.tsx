@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Hydrate user from localStorage on mount
         const storedToken = localStorage.getItem('kogna_token');
         const storedUser = localStorage.getItem('kogna_user');
-        
+
 
         if (storedToken && storedUser) {
             try {
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const login = async (email: string, pass: string) => {
         try {
-            const apiBase = 'http://127.0.0.1:3000'; // Hardcoded for local dev for now
+            const apiBase = ''; // Hardcoded for local dev for now
             const res = await fetch(`${apiBase}/api/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem('kogna_user', JSON.stringify(data.user));
             setToken(data.token);
             setUser(data.user);
-            
+
 
             // Check Onboarding Status
             try {
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const register = async (name: string, email: string, pass: string) => {
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -150,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Let's assume we can add a GET /api/profile/me or similar.
             // Ideally, we should add GET /api/me to server.js as well.
 
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/me`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });

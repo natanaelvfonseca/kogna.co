@@ -11,7 +11,7 @@ import { Bug } from 'lucide-react';
 import { DebugModal, DebugLog } from '../../components/DebugModal';
 
 // API Configuration
-const API_URL = 'http://127.0.0.1:3000/api';
+const API_URL = '/api';
 
 const AI_NAME_SUGGESTIONS = ['Ana', 'Luna', 'Clara', 'Max', 'Leo', 'Lia', 'Nina', 'Iris', 'Nora', 'Sol'];
 
@@ -105,8 +105,8 @@ function Thermometer({ potential }: { potential: number }) {
 }
 
 export function Onboarding() {
-    const { user } = useAuth();
-    const { fetchNotifications } = useNotifications();
+    const { user, token, refreshUser } = useAuth();
+    const { fetchNotifications, showToast } = useNotifications();
     const navigate = useNavigate();
 
     // Steps: 0=Intro, 1=Template, 2=Business (substeps), 3=Files, 4=WhatsApp
@@ -398,7 +398,7 @@ export function Onboarding() {
         pollInterval.current = setInterval(async () => {
             try {
                 const res = await fetch(`${API_URL}/instance`, {
-                    headers: { 'Authorization': `Bearer mock-jwt-token-for-${user?.id}` }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -409,34 +409,42 @@ export function Onboarding() {
                     }
                 }
             } catch (e) { }
-        }, 5000);
+        }, 2000);
     };
 
     const completeOnboarding = async () => {
         setPotential(100);
 
-        // Final celebration
-        confetti({
-            particleCount: 200,
-            spread: 100,
-            origin: { y: 0.6 }
-        });
-        playSound('level-up');
-
         try {
-            await fetch(`${API_URL}/onboarding/complete`, {
+            const res = await fetch(`${API_URL}/onboarding/complete`, {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer mock-jwt-token-for-${user?.id}` }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            await fetchNotifications();
+            if (!res.ok) throw new Error('Falha ao registrar conclusão do onboarding');
 
+            // Success effects
+            confetti({
+                particleCount: 200,
+                spread: 100,
+                origin: { y: 0.6 }
+            });
+            playSound('level-up');
+
+            showToast('Onboarding Concluído!', 'Sua IA foi configurada e você ganhou 100 Koins!', 'success');
+
+            await Promise.all([
+                fetchNotifications(),
+                refreshUser()
+            ]);
+
+            // Create Agent if template selected
             if (selectedTemplate) {
                 await fetch(`${API_URL}/onboarding/create-agent`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                        'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({
                         templateId: selectedTemplate.id,
@@ -451,8 +459,11 @@ export function Onboarding() {
                 });
             }
 
-        } catch (e) {
+            return true;
+        } catch (e: any) {
             console.error('Failed to complete onboarding', e);
+            showToast('Aviso', 'Ocorreu um erro ao finalizar o cadastro, mas seus dados foram salvos.', 'warning');
+            return false;
         }
     };
 
@@ -832,8 +843,11 @@ export function Onboarding() {
 
                                         <div>
                                             <h2 className="text-3xl font-display font-bold text-foreground">Sincronização Completa!</h2>
-                                            <p className="text-muted-foreground max-w-md mx-auto mt-2 text-lg">
-                                                <strong>{formData.aiName}</strong> está viva e pronta para gerar receita.
+                                            <p className="text-muted-foreground max-w-lg mx-auto mt-2 text-lg">
+                                                <strong>{formData.aiName}</strong> está viva e pronta para gerar receita. <br />
+                                                <span className="text-primary font-semibold block mt-2">
+                                                    Parabéns {user?.name}! Você ganhou <span className="text-yellow-500 font-bold">100 Koins</span> para fazer a <strong>{formData.companyName}</strong> escalar o faturamento melhorando o atendimento.
+                                                </span>
                                             </p>
                                         </div>
 

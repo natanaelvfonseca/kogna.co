@@ -35,7 +35,7 @@ function buildPromptFromTemplate(templateId: string, data: CompanyData): string 
 }
 
 export function MyAIs() {
-    const { user } = useAuth();
+    const { user, token } = useAuth();
     const [agents, setAgents] = useState<Agent[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -64,7 +64,7 @@ export function MyAIs() {
         try {
             const res = await fetch('/api/agents', {
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('kogna_token') || 'mock-jwt-token-for-' + user?.id}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
             if (res.ok) {
@@ -83,7 +83,7 @@ export function MyAIs() {
             const res = await fetch(`/api/agents/${agent.id}/toggle-pause`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('kogna_token') || 'mock-jwt-token-for-' + user?.id}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
 
@@ -110,7 +110,7 @@ export function MyAIs() {
             const res = await fetch(`/api/agents/${agentId}`, {
                 method: 'DELETE',
                 headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('kogna_token') || 'mock-jwt-token-for-' + user?.id}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
 
@@ -149,7 +149,7 @@ export function MyAIs() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('kogna_token') || 'mock-jwt-token-for-' + user?.id}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     name: newName,
@@ -396,7 +396,7 @@ export function MyAIs() {
                                         setIsLoadingCompanyData(true);
                                         try {
                                             const res = await fetch('/api/company-data', {
-                                                headers: { 'Authorization': `Bearer ${localStorage.getItem('kogna_token') || 'mock-jwt-token-for-' + user?.id}` }
+                                                headers: { 'Authorization': `Bearer ${token}` }
                                             });
                                             const data = await res.json();
                                             if (data) {

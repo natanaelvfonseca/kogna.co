@@ -16,7 +16,7 @@ export function Topbar() {
 
         const fetchCredits = async () => {
             try {
-                const apiBase = 'http://127.0.0.1:3000'; // Hardcoded as per AuthContext
+                const apiBase = ''; // Relative path
                 const res = await fetch(`${apiBase}/api/credits`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });

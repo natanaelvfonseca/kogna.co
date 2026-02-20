@@ -56,7 +56,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         try {
             setLoading(true);
             const token = localStorage.getItem('kogna_token');
-            const response = await fetch('http://127.0.0.1:3000/api/notifications', {
+            const response = await fetch('/api/notifications', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -75,7 +75,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const markAsRead = async (id: string) => {
         try {
             const token = localStorage.getItem('kogna_token');
-            await fetch(`http://127.0.0.1:3000/api/notifications/${id}/read`, {
+            await fetch(`/api/notifications/${id}/read`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`

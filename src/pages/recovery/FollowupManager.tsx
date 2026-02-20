@@ -12,7 +12,7 @@ interface FollowupSequence {
 }
 
 export function FollowupManager() {
-    const { user } = useAuth();
+    const { token } = useAuth();
     const [sequences, setSequences] = useState<FollowupSequence[]>([]);
     const [loading, setLoading] = useState(true);
     const [newDelay, setNewDelay] = useState(1);
@@ -31,7 +31,7 @@ export function FollowupManager() {
             details
         };
         setLogs(prev => [newLog, ...prev]);
-        
+
     };
 
     useEffect(() => {
@@ -43,7 +43,7 @@ export function FollowupManager() {
         try {
             const res = await fetch('/api/recovery/sequences', {
                 headers: {
-                    'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
             addLog('info', `Fetch status: ${res.status}`);
@@ -88,7 +88,7 @@ export function FollowupManager() {
             const res = await fetch(url, {
                 method: method,
                 headers: {
-                    'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: formData,
             });
@@ -141,7 +141,7 @@ export function FollowupManager() {
             const res = await fetch(`/api/recovery/sequences/${id}`, {
                 method: 'DELETE',
                 headers: {
-                    'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                    'Authorization': `Bearer ${token}`
                 }
             });
             if (res.ok) {

@@ -61,7 +61,7 @@ export function Clients() {
         if (!token) return;
         try {
             setLoading(true);
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/clients`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -85,7 +85,7 @@ export function Clients() {
         if (!confirm(`Tem certeza que deseja excluir o cliente ${clientName}? Esta ação não pode ser desfeita.`)) return;
 
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/leads/${clientId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` }

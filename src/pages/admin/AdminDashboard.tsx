@@ -60,7 +60,7 @@ export function AdminDashboard() {
     const [formError, setFormError] = useState('');
     const [formSuccess, setFormSuccess] = useState('');
 
-    const apiBase = 'http://127.0.0.1:3000';
+    const apiBase = '';
 
     useEffect(() => {
         fetchData();
@@ -219,7 +219,7 @@ export function AdminDashboard() {
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <StatCard
                                     title="MRR (Assinaturas)"
-                                    value={`R$ ${stats?.mrr.toLocaleString()}`}
+                                    value={`R$ ${(stats?.mrr || 0).toLocaleString()}`}
                                     icon={<DollarSign className="w-6 h-6 text-amber-500" />}
                                     trend="+12% vs mês anterior"
                                     color="from-purple-500/10 to-amber-500/10"
@@ -233,7 +233,7 @@ export function AdminDashboard() {
                                 />
                                 <StatCard
                                     title="Consumo de Koins"
-                                    value="842.5k"
+                                    value={(stats?.chartData?.reduce((acc, curr) => acc + curr.revenue, 0) || 0).toLocaleString()}
                                     icon={<CreditCard className="w-6 h-6 text-amber-500" />}
                                     trend="+22.4% vs ontem"
                                     color="from-amber-500/10 to-orange-500/10"
@@ -335,7 +335,7 @@ export function AdminDashboard() {
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-amber-500 font-mono font-bold">
-                                                    {user.koins_balance?.toLocaleString()}
+                                                    {user.koins_balance?.toLocaleString() || '0'}
                                                 </td>
                                                 <td className="px-6 py-4 text-sm">
                                                     {new Date(user.created_at).toLocaleDateString('pt-BR')}

@@ -1,0 +1,2 @@
+Status: 200
+Body: {"pipeline":{"total_leads":3,"total_value":1350,"won_value":1350,"won_count":3,"appointments":1},"ai":{"active_chats":1,"total_messages":186,"saved_hours":6,"chart":[{"name":"Qui","volume":0},{"name":"Sex","volume":0},{"name":"Sab","volume":0},{"name":"Dom","volume":0},{"name":"Seg","volume":48},{"name":"Ter","volume":84},{"name":"Qua","volume":54}]}}

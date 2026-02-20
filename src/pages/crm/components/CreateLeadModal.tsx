@@ -12,7 +12,7 @@ interface LeadModalProps {
 }
 
 export function LeadModal({ isOpen, onClose, onSuccess, leadToEdit }: LeadModalProps) {
-    const { user } = useAuth();
+    const { user, token } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
@@ -105,7 +105,7 @@ export function LeadModal({ isOpen, onClose, onSuccess, leadToEdit }: LeadModalP
                 method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(payload),
             });

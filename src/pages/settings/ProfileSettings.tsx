@@ -31,7 +31,7 @@ export function ProfileSettings() {
         setStatus(null);
 
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/profile/update`, {
                 method: 'PUT',
                 headers: {
@@ -77,7 +77,7 @@ export function ProfileSettings() {
 
         setIsSaving(true);
         try {
-            const apiBase = 'http://127.0.0.1:3000';
+            const apiBase = '';
             const res = await fetch(`${apiBase}/api/profile/change-password`, {
                 method: 'PUT',
                 headers: {

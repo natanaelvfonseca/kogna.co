@@ -25,7 +25,7 @@ const LEGACY_STATUS_MAP: Record<string, string> = {
 };
 
 export function KanbanBoard({ refreshTrigger, onEditLead }: { refreshTrigger: number; onEditLead: (lead: Lead) => void }) {
-    const { user } = useAuth();
+    const { token } = useAuth();
     const { showToast } = useNotifications();
     const [leads, setLeads] = useState<Lead[]>([]);
     const [loading, setLoading] = useState(true);
@@ -37,7 +37,7 @@ export function KanbanBoard({ refreshTrigger, onEditLead }: { refreshTrigger: nu
 
     const authHeaders = (): HeadersInit => ({
         'Content-Type': 'application/json',
-        ...(user?.id ? { 'Authorization': `Bearer mock-jwt-token-for-${user.id}` } : {})
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     });
 
     // Get the column title that a lead belongs to

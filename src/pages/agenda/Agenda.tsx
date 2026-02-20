@@ -53,7 +53,7 @@ interface Agendamento {
 }
 
 export function Agenda() {
-    const { user } = useAuth();
+    const { token } = useAuth();
     const { showToast } = useNotifications();
     const [tab, setTab] = useState<Tab>('agenda');
     const [loading, setLoading] = useState(false);
@@ -93,12 +93,12 @@ export function Agenda() {
             details
         };
         setLogs(prev => [newLog, ...prev]);
-        
+
     };
 
     const authHeaders = (): HeadersInit => ({
         'Content-Type': 'application/json',
-        ...(user?.id ? { Authorization: `Bearer mock-jwt-token-for-${user.id}` } : {})
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
     });
 
     // ── Fetch Functions ──────────────────────────────────

@@ -9,7 +9,7 @@ export function CheckoutSuccess() {
     const [status, setStatus] = useState<'loading' | 'approved' | 'pending' | 'failed'>('loading');
     const [koinsData, setKoinsData] = useState<{ koins_credited?: number; koins_balance?: number; amount?: number } | null>(null);
     const verifiedRef = useRef(false);
-    const apiBase = 'http://127.0.0.1:3000';
+    const apiBase = '';
 
     // Mercado Pago redirects with these query params:
     // ?collection_id=PAYMENT_ID&collection_status=approved&payment_id=PAYMENT_ID&status=approved&...

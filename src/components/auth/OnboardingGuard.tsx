@@ -14,17 +14,17 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
 
     useEffect(() => {
         const checkStatus = async () => {
-            
+
 
             if (!user || !token) {
-                
+
                 setIsLoading(false);
                 return;
             }
 
             try {
                 // Hardcoded API URL for consistency with other components
-                const API_URL = 'http://127.0.0.1:3000/api';
+                const API_URL = '/api';
                 const res = await fetch(`${API_URL}/onboarding/status`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -33,14 +33,14 @@ export function OnboardingGuard({ children }: OnboardingGuardProps) {
 
                 if (res.ok) {
                     const data = await res.json();
-                    
+
 
                     // If onboarding is NOT completed, we should redirect to /onboarding
                     if (!data.completed) {
-                        
+
                         setShouldRedirect(true);
                     } else {
-                        
+
                     }
                 } else {
                     console.error('OnboardingGuard: API Check failed', res.status);

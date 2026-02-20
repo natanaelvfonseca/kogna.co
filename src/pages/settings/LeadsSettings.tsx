@@ -18,7 +18,7 @@ interface Source {
 }
 
 export function LeadsSettings() {
-    const { user } = useAuth();
+    const { token } = useAuth();
     const [columns, setColumns] = useState<Column[]>([]);
     const [sources, setSources] = useState<Source[]>([]);
     const [loading, setLoading] = useState(true);
@@ -30,7 +30,7 @@ export function LeadsSettings() {
 
     const authHeaders = (): HeadersInit => ({
         'Content-Type': 'application/json',
-        ...(user?.id ? { 'Authorization': `Bearer mock-jwt-token-for-${user.id}` } : {})
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     });
 
     useEffect(() => {

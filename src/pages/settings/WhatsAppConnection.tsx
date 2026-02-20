@@ -4,7 +4,7 @@ import { Loader2, CheckCircle2, AlertCircle, Smartphone, Plus, Trash2, RefreshCw
 import { useAuth } from '../../context/AuthContext';
 
 // API Base URL (Backend)
-const API_URL = 'http://127.0.0.1:3000/api';
+const API_URL = '/api';
 
 type ConnectionStatus = 'checking' | 'idle' | 'connecting' | 'qrcode' | 'connected' | 'error';
 
@@ -279,6 +279,26 @@ export function WhatsAppConnection() {
                             className="text-primary hover:text-primary-dark font-semibold border-b-2 border-primary/20 hover:border-primary transition-all pb-0.5"
                         >
                             Conectar agora
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                try {
+                                    if (confirm("Tentar reparar conexão sumida?")) {
+                                        setLoading(true);
+                                        const res = await fetch(`${API_URL}/repair-connection`, {
+                                            method: 'POST',
+                                            headers: { 'Authorization': `Bearer ${(user as any)?.token || ''}` }
+                                        });
+                                        const data = await res.json();
+                                        alert(data.message || "Tentativa concluída");
+                                        window.location.reload();
+                                    }
+                                } catch (e) { alert("Erro ao reparar"); } finally { setLoading(false); }
+                            }}
+                            className="mt-8 text-xs text-text-muted hover:text-text-primary underline"
+                        >
+                            Não vê sua conexão? Clique aqui para reparar.
                         </button>
                     </div>
                 )}
