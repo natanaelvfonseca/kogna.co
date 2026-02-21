@@ -7377,7 +7377,7 @@ if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     
     // SPA fallback - serve index.html for non-API routes
-    app.get('*', (req, res, next) => {
+    app.get('{*path}', (req, res, next) => {
         // Skip API routes and uploads
         if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/auth/')) {
             return next();
