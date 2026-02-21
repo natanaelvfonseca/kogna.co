@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config/api';
 import {
     Search,
     CheckCircle2,
@@ -41,7 +42,7 @@ export const AdminPartners: React.FC = () => {
 
     const fetchPartners = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/admin/partners', {
+            const res = await fetch(`${API_URL}/admin/partners`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -59,7 +60,7 @@ export const AdminPartners: React.FC = () => {
 
     const updatePartnerStatus = async (id: string, status: string) => {
         try {
-            await fetch(`http://localhost:3000/api/admin/partners/${id}`, {
+            await fetch(`${API_URL}/admin/partners/${id}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -78,7 +79,7 @@ export const AdminPartners: React.FC = () => {
         if (!newPercentage) return;
 
         try {
-            await fetch(`http://localhost:3000/api/admin/partners/${id}`, {
+            await fetch(`${API_URL}/admin/partners/${id}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -100,7 +101,7 @@ export const AdminPartners: React.FC = () => {
         }
 
         try {
-            const res = await fetch('http://localhost:3000/api/admin/partners', {
+            const res = await fetch(`${API_URL}/admin/partners`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

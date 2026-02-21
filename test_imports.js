@@ -1,26 +1,35 @@
-
-(async () => {
-    try {
-        console.log('Testing imports...');
-        const { createRequire } = await import('module');
-        const require = createRequire(import.meta.url);
-        console.log('require created');
-
-        await import('express');
-        console.log('express imported');
-
-        await import('pg');
-        console.log('pg imported');
-
-        await import('openai');
-        console.log('openai imported');
-
-        require('dotenv').config();
-        console.log('dotenv loaded');
-
-        console.log('ALL IMPORTS OK');
-    } catch (e) {
-        console.error('IMPORT ERROR:', e);
-        process.exit(1);
-    }
-})();
+import express from 'express';
+console.log('express ok');
+import fetch from 'node-fetch';
+console.log('fetch ok');
+import cors from 'cors';
+console.log('cors ok');
+import fs from 'fs';
+console.log('fs ok');
+import multer from 'multer';
+console.log('multer ok');
+import path from 'path';
+console.log('path ok');
+import { fileURLToPath } from 'url';
+console.log('url ok');
+import OpenAI from 'openai';
+console.log('openai ok');
+import { MercadoPagoConfig } from 'mercadopago';
+console.log('mercadopago ok');
+import pdfParser from 'pdf-parse';
+console.log('pdf-parse ok');
+import bcrypt from 'bcryptjs';
+console.log('bcryptjs ok');
+import cookieParser from 'cookie-parser';
+console.log('cookie-parser ok');
+import jwt from 'jsonwebtoken';
+console.log('jsonwebtoken ok');
+import helmet from 'helmet';
+console.log('helmet ok');
+import rateLimit from 'express-rate-limit';
+console.log('rate-limit ok');
+import dotenv from 'dotenv';
+console.log('dotenv ok');
+import pg from 'pg';
+console.log('pg ok');
+console.log('ALL IMPORTS OK');

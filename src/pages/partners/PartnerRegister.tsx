@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config/api';
 import { ArrowRight, CheckCircle2, DollarSign, TrendingUp, Share2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -19,7 +20,7 @@ export const PartnerRegister = () => {
         setLoading(true);
 
         try {
-            const res = await fetch('http://localhost:3000/api/partners/register', {
+            const res = await fetch(`${API_URL}/partners/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, email, password }),

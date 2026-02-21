@@ -7,6 +7,7 @@ export function Register() {
     const { register } = useAuth();
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
+    const [whatsapp, setWhatsapp] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -27,7 +28,7 @@ export function Register() {
         }
 
         setLoading(true);
-        const result = await register(name, email, password);
+        const result = await register(name, email, password, whatsapp);
 
         if (!result.success) {
             setError(result.error || 'Erro ao criar conta');
@@ -76,7 +77,7 @@ export function Register() {
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-text-secondary mb-2">E-mail corporativo</label>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">E-mail</label>
                             <div className="relative group">
                                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={20} />
                                 <input
@@ -86,6 +87,21 @@ export function Register() {
                                     required
                                     className="w-full bg-background border border-border rounded-lg pl-10 pr-4 py-3 text-text-primary placeholder-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                                     placeholder="seu@email.com"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">WhatsApp</label>
+                            <div className="relative group">
+                                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors font-bold">+55</div>
+                                <input
+                                    type="text"
+                                    value={whatsapp}
+                                    onChange={(e) => setWhatsapp(e.target.value.replace(/\D/g, ''))}
+                                    required
+                                    className="w-full bg-background border border-border rounded-lg pl-12 pr-4 py-3 text-text-primary placeholder-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                                    placeholder="(11) 90000-0000"
                                 />
                             </div>
                         </div>

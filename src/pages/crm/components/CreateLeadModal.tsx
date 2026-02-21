@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { X, DollarSign, Phone, Mail } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
+import { API_URL } from '../../../config/api';
 import { Lead } from '../types';
 
 interface LeadModalProps {
@@ -25,7 +26,6 @@ export function LeadModal({ isOpen, onClose, onSuccess, leadToEdit }: LeadModalP
         source: ''
     });
 
-    const API_URL = 'http://localhost:3000/api';
     const isEditing = !!leadToEdit;
 
     useEffect(() => {

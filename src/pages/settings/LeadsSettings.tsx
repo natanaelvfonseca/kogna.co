@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, Check, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config/api';
 
 interface Column {
     id: string;
@@ -26,7 +27,6 @@ export function LeadsSettings() {
     const [newColumnTitle, setNewColumnTitle] = useState('');
     const [newSourceName, setNewSourceName] = useState('');
 
-    const API_URL = 'http://localhost:3000/api';
 
     const authHeaders = (): HeadersInit => ({
         'Content-Type': 'application/json',

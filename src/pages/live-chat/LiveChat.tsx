@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Search, Paperclip, CheckCheck, X, Play, Pause } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
+
 interface Chat {
     id: string;
     name: string;
@@ -62,6 +63,8 @@ export function LiveChat() {
     const [isChatPaused, setIsChatPaused] = useState(false);
     const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
 
+
+
     // Fetch Chat Context when activeChat changes
     useEffect(() => {
         if (!activeChat || !instanceName || !user) return;
@@ -78,8 +81,6 @@ export function LiveChat() {
                     if (data.found) {
                         setCurrentAgentId(data.agentId);
                         setIsChatPaused(data.isChatPaused);
-                    } else {
-                        setCurrentAgentId(null);
                     }
                 }
             } catch (err) {
@@ -87,7 +88,7 @@ export function LiveChat() {
             }
         };
         fetchContext();
-    }, [activeChat, instanceName, user]);
+    }, [activeChat, instanceName, user, token]);
 
     const handleToggleChatPause = async () => {
         if (!currentAgentId || !activeChat) return;
@@ -146,7 +147,7 @@ export function LiveChat() {
                 console.error('LiveChat DEBUG: Failed to load instance name:', err);
                 setNoInstance(true);
             });
-    }, [user]);
+    }, [user, token]);
 
     // --- 2. Fetch Chats (Polling) ---
     const fetchChats = useCallback(async () => {
@@ -420,7 +421,7 @@ export function LiveChat() {
             console.error('Failed to fetch messages:', error);
             setFetchError(`Net Error: ${error.message}`);
         }
-    }, [instanceName, activeChat]);
+    }, [instanceName, activeChat, messages.length]);
 
     useEffect(() => {
         if (activeChat) {
@@ -832,7 +833,7 @@ export function LiveChat() {
     if (!instanceName) {
         if (noInstance) {
             return (
-                <div className="flex h-screen flex-col items-center justify-center bg-gray-50 dark:bg-[#0C0C0C] text-gray-900 dark:text-white gap-4">
+                <div className="flex h-screen flex-col items-center justify-center bg-gray-50 dark:bg-[#0C0C0C] text-gray-900 dark:text-white gap-4 relative">
                     <div className="text-xl font-medium">Nenhuma conexão de WhatsApp encontrada.</div>
                     <p className="text-gray-500">Conecte seu WhatsApp para usar o chat ao vivo.</p>
                     <a href="/whatsapp" className="px-4 py-2 bg-[#FF4C00] text-white rounded-lg hover:bg-[#ff6a2b] transition-colors">
@@ -841,16 +842,22 @@ export function LiveChat() {
                 </div>
             );
         }
-        return <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-[#0C0C0C] text-gray-900 dark:text-white">Carregando instância...</div>;
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-[#0C0C0C] text-gray-900 dark:text-white relative">
+                Carregando instância...
+            </div>
+        );
     }
 
     return (
-        // Main Container: "Blindado" - Relative h-full to fill parent exactly without breaking out
         <div className="relative w-full h-full flex overflow-hidden bg-gray-50 dark:bg-[#0C0C0C] rounded-xl border border-gray-200 dark:border-[#2A2A2A] shadow-sm">
 
-            {/* Sidebar */}
+
             <div className="flex-none w-[350px] min-w-[350px] bg-white dark:bg-[#121212] border-r border-gray-200 dark:border-[#2A2A2A] flex flex-col h-full z-10">
 
+                <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-[#2A2A2A]">
+                    <h2 className="text-gray-900 dark:text-white font-medium pl-1">Conversas</h2>
+                </div>
 
                 {/* Search Bar */}
                 <div className="flex-none p-3 bg-white dark:bg-[#121212]">
@@ -1113,7 +1120,7 @@ export function LiveChat() {
                     </div>
                 )}
             </div>
-        </div >
+        </div>
     );
 }
 

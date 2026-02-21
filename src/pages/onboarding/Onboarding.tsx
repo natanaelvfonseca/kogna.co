@@ -127,7 +127,7 @@ export function Onboarding() {
         companyProduct: '',
         productPrice: '',
         desiredRevenue: '',
-        targetAudience: '',
+        targetAudience: [] as string[],
         targetNiche: '',
         unknownBehavior: '',
         voiceTone: '',
@@ -173,9 +173,9 @@ export function Onboarding() {
     }, []);
 
     // Derived values
-    const audienceDisplay = formData.targetAudience === 'nicho'
+    const audienceDisplay = formData.targetAudience.includes('nicho')
         ? `Nicho específico: ${formData.targetNiche}`
-        : formData.targetAudience;
+        : formData.targetAudience.join(' e ');
 
     // Simulate "Loading Facts"
     const showLoadingScreen = async (nextAction: () => void) => {
@@ -230,8 +230,8 @@ export function Onboarding() {
 
     const handleNegocio = () => {
         if (!formData.companyProduct) { setError('Informe o que sua empresa vende.'); return; }
-        if (!formData.targetAudience) { setError('Selecione quem é seu cliente principal.'); return; }
-        if (formData.targetAudience === 'nicho' && !formData.targetNiche) { setError('Informe o nicho específico.'); return; }
+        if (formData.targetAudience.length === 0) { setError('Selecione quem é seu cliente principal.'); return; }
+        if (formData.targetAudience.includes('nicho') && !formData.targetNiche) { setError('Informe o nicho específico.'); return; }
 
         playSound('success');
         setError(null);
@@ -366,7 +366,10 @@ export function Onboarding() {
         try {
             const res = await fetch(`${API_URL}/whatsapp/connect`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify({ email: user.email })
             });
 
@@ -397,12 +400,14 @@ export function Onboarding() {
         if (pollInterval.current) clearInterval(pollInterval.current);
         pollInterval.current = setInterval(async () => {
             try {
-                const res = await fetch(`${API_URL}/instance`, {
+                const res = await fetch(`${API_URL}/instances`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    if (data && (data.status === 'CONNECTED' || data.status === 'open')) {
+                    const isConnected = Array.isArray(data) && data.some((i: any) => i.status === 'CONNECTED' || i.status === 'open');
+
+                    if (isConnected) {
                         setWsStatus('connected');
                         if (pollInterval.current) clearInterval(pollInterval.current);
                         completeOnboarding();
@@ -702,10 +707,30 @@ export function Onboarding() {
                                             </div>
 
                                             <div>
-                                                <label className="text-sm font-medium text-foreground mb-2 block">Público Alvo</label>
+                                                <label className="text-sm font-medium text-foreground mb-2 block">Público Alvo (Pode selecionar mais de um)</label>
                                                 <div className="grid grid-cols-2 gap-2">
-                                                    <OptionButton icon="👤" label="Pessoas Físicas (B2C)" selected={formData.targetAudience === 'Pessoas físicas'} onClick={() => setFormData({ ...formData, targetAudience: 'Pessoas físicas', targetNiche: '' })} />
-                                                    <OptionButton icon="🏢" label="Empresas (B2B)" selected={formData.targetAudience === 'Pequenas empresas'} onClick={() => setFormData({ ...formData, targetAudience: 'Pequenas empresas', targetNiche: '' })} />
+                                                    <OptionButton
+                                                        icon="👤"
+                                                        label="Pessoas Físicas (B2C)"
+                                                        selected={formData.targetAudience.includes('Pessoas físicas')}
+                                                        onClick={() => {
+                                                            const newAudience = formData.targetAudience.includes('Pessoas físicas')
+                                                                ? formData.targetAudience.filter(a => a !== 'Pessoas físicas')
+                                                                : [...formData.targetAudience, 'Pessoas físicas'];
+                                                            setFormData({ ...formData, targetAudience: newAudience, targetNiche: '' });
+                                                        }}
+                                                    />
+                                                    <OptionButton
+                                                        icon="🏢"
+                                                        label="Empresas (B2B)"
+                                                        selected={formData.targetAudience.includes('Empresas (B2B)')}
+                                                        onClick={() => {
+                                                            const newAudience = formData.targetAudience.includes('Empresas (B2B)')
+                                                                ? formData.targetAudience.filter(a => a !== 'Empresas (B2B)')
+                                                                : [...formData.targetAudience, 'Empresas (B2B)'];
+                                                            setFormData({ ...formData, targetAudience: newAudience, targetNiche: '' });
+                                                        }}
+                                                    />
                                                 </div>
                                             </div>
                                         </div>

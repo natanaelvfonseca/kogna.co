@@ -1,0 +1,7 @@
+OK: /chat/*path
+OK: /chat/{*path}
+ERR: /chat/:path* -> Missing parameter name at index 12: /chat/:path*; visit https://git.new/pathToRegexpError for info
+ERR: /chat(.*) -> Missing parameter name at index 8: /chat(.*); visit https://git.new/pathToRegexpError for info
+ERR: /chat* -> Missing parameter name at index 6: /chat*; visit https://git.new/pathToRegexpError for info
+ERR: /chat/:path(.*) -> Missing parameter name at index 14: /chat/:path(.*); visit https://git.new/pathToRegexpError for info
+ERR: /* -> Missing parameter name at index 2: /*; visit https://git.new/pathToRegexpError for info

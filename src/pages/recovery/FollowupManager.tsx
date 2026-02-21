@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Trash, Plus, Save, Clock, Image as ImageIcon, MessageSquare, AlertCircle, Bug, Pencil } from 'lucide-react';
+import { Trash, Plus, Save, Clock, Image as ImageIcon, MessageSquare, AlertCircle, Pencil } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { DebugModal, DebugLog } from '../../components/DebugModal';
+
 
 interface FollowupSequence {
     id: string;
@@ -19,45 +19,29 @@ export function FollowupManager() {
     const [newMessage, setNewMessage] = useState('');
     const [newImage, setNewImage] = useState<File | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [debugOpen, setDebugOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [logs, setLogs] = useState<DebugLog[]>([]);
 
-    const addLog = (type: DebugLog['type'], message: string, details?: any) => {
-        const newLog = {
-            timestamp: new Date().toLocaleTimeString(),
-            type,
-            message,
-            details
-        };
-        setLogs(prev => [newLog, ...prev]);
-
-    };
 
     useEffect(() => {
         fetchSequences();
     }, []);
 
     const fetchSequences = async () => {
-        addLog('info', 'Fetching sequences...');
         try {
             const res = await fetch('/api/recovery/sequences', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
-            addLog('info', `Fetch status: ${res.status}`);
             if (res.ok) {
                 const data = await res.json();
                 setSequences(data);
-                addLog('success', `Loaded ${data.length} sequences`);
             } else {
                 const text = await res.text();
-                addLog('error', 'Failed to fetch sequences', text);
+                console.error('Failed to fetch sequences', text);
             }
         } catch (error) {
             console.error('Failed to fetch sequences', error);
-            addLog('error', 'Network error fetching sequences', error);
         } finally {
             setLoading(false);
         }
@@ -66,14 +50,12 @@ export function FollowupManager() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        addLog('info', `Starting sequence ${editingId ? 'update' : 'creation'}...`);
 
         const formData = new FormData();
         formData.append('delayDays', newDelay.toString());
         formData.append('message', newMessage);
         if (newImage) {
             formData.append('image', newImage);
-            addLog('info', 'Image attached', newImage.name);
         }
 
         try {
@@ -83,8 +65,6 @@ export function FollowupManager() {
 
             const method = editingId ? 'PUT' : 'POST';
 
-            addLog('info', `Sending ${method} request to ${url}`);
-
             const res = await fetch(url, {
                 method: method,
                 headers: {
@@ -93,18 +73,14 @@ export function FollowupManager() {
                 body: formData,
             });
 
-            addLog('info', `Response status: ${res.status}`);
-
             if (res.ok) {
                 setNewMessage('');
                 setNewDelay(1);
                 setNewImage(null);
                 setEditingId(null);
                 fetchSequences();
-                addLog('success', `Sequence ${editingId ? 'updated' : 'created'} successfully`);
             } else {
                 const errText = await res.text();
-                addLog('error', 'Server error response', errText);
                 console.error(`Error ${editingId ? 'updating' : 'creating'} sequence:`, res.status, errText);
                 try {
                     const err = JSON.parse(errText);
@@ -115,7 +91,6 @@ export function FollowupManager() {
             }
         } catch (error) {
             console.error("Connection error in FollowupManager:", error);
-            addLog('error', 'Connection/Network Error', error);
             setError("Erro de conexão: " + (error as any).message);
         }
     };
@@ -125,7 +100,6 @@ export function FollowupManager() {
         setNewDelay(seq.delay_days);
         setNewMessage(seq.message);
         setNewImage(null); // Reset image input as we can't pre-fill file inputs
-        addLog('info', 'Editing sequence', seq.id);
     };
 
     const cancelEdit = () => {
@@ -164,20 +138,7 @@ export function FollowupManager() {
                             Configure mensagens automáticas para recuperar leads inativos.
                         </p>
                     </div>
-                    <button
-                        onClick={() => setDebugOpen(true)}
-                        className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted hover:text-foreground hover:bg-muted/80 rounded-md transition-colors"
-                    >
-                        <Bug size={14} />
-                        Debug Info
-                    </button>
                 </div>
-                <DebugModal
-                    isOpen={debugOpen}
-                    onClose={() => setDebugOpen(false)}
-                    logs={logs}
-                    title="Recovery Machine Debug"
-                />
             </div>
 
             {error && (

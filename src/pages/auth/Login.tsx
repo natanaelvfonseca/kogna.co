@@ -49,7 +49,7 @@ export function Login() {
                             </div>
                         )}
                         <div>
-                            <label className="block text-sm font-medium text-text-secondary mb-2">E-mail corporativo</label>
+                            <label className="block text-sm font-medium text-text-secondary mb-2">E-mail</label>
                             <div className="relative group">
                                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors" size={20} />
                                 <input

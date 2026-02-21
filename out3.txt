@@ -1,0 +1,4 @@
+Testing express
+Error with /*: Missing parameter name at index 7: /chat/*; visit https://git.new/pathToRegexpError for info
+Error with /(.*): Missing parameter name at index 9: /chat/(.*); visit https://git.new/pathToRegexpError for info
+Error with /:path(.*): Missing parameter name at index 14: /chat/:path(.*); visit https://git.new/pathToRegexpError for info

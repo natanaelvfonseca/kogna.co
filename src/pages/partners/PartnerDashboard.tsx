@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config/api';
 import { motion } from 'framer-motion';
 import {
     Users,
@@ -50,7 +51,7 @@ export const PartnerDashboard: React.FC = () => {
 
     const fetchPartnerData = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/partners/dashboard', {
+            const res = await fetch(`${API_URL}/partners/dashboard`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -74,7 +75,7 @@ export const PartnerDashboard: React.FC = () => {
 
     const handleApply = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/partners/apply', {
+            const res = await fetch(`${API_URL}/partners/apply`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`

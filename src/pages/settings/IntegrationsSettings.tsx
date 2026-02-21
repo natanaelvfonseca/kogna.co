@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Key, Globe, Copy, Check } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { API_BASE_URL } from '../../config/api';
 
-const API_BASE_URL = 'http://localhost:3000/api'; // Adjust if needed
 
 interface ApiKey {
     id: string;
@@ -220,7 +220,7 @@ function ApiKeysManager() {
                     Access our comprehensive API documentation to learn how to integrate Kogna into your applications.
                 </p>
                 <a
-                    href="http://localhost:3000/api-docs"
+                    href={`${API_BASE_URL.replace('/api', '')}/api-docs`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 text-primary hover:underline font-medium"

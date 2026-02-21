@@ -16,7 +16,7 @@ interface WhatsAppInstance {
 }
 
 export function WhatsAppConnection() {
-    const { user } = useAuth();
+    const { user, token } = useAuth();
     const navigate = useNavigate();
 
     // State
@@ -62,7 +62,7 @@ export function WhatsAppConnection() {
         if (!user) return;
         try {
             const res = await fetch(`${API_URL}/instances`, {
-                headers: { 'Authorization': `Bearer ${(user as any)?.token || ''}` }
+                headers: { 'Authorization': `Bearer ${token || ''}` }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -89,7 +89,7 @@ export function WhatsAppConnection() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${(user as any)?.token || ''}`
+                    'Authorization': `Bearer ${token || ''}`
                 },
                 body: JSON.stringify({
                     email: user.email,
@@ -150,7 +150,7 @@ export function WhatsAppConnection() {
             try {
                 // Poll our backend for status updates
                 const res = await fetch(`${API_URL}/instances`, {
-                    headers: { 'Authorization': `Bearer ${(user as any)?.token || ''}` }
+                    headers: { 'Authorization': `Bearer ${token || ''}` }
                 });
                 if (res.ok) {
                     const data = await res.json();
@@ -178,7 +178,7 @@ export function WhatsAppConnection() {
         try {
             await fetch(`${API_URL}/instance/${id}`, {
                 method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${(user as any)?.token || ''}` }
+                headers: { 'Authorization': `Bearer ${token || ''}` }
             });
             fetchInstances();
         } catch (err) {
@@ -201,7 +201,7 @@ export function WhatsAppConnection() {
             <div className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary mb-1">Conexões WhatsApp</h1>
-                    <p className="text-text-secondary text-sm">Gerencie suas instâncias conectadas e adicione novos números.</p>
+                    <p className="text-text-secondary text-sm">Gerencie seus números conectados e adicione novos números.</p>
                 </div>
                 <button
                     onClick={() => {
@@ -281,25 +281,7 @@ export function WhatsAppConnection() {
                             Conectar agora
                         </button>
 
-                        <button
-                            onClick={async () => {
-                                try {
-                                    if (confirm("Tentar reparar conexão sumida?")) {
-                                        setLoading(true);
-                                        const res = await fetch(`${API_URL}/repair-connection`, {
-                                            method: 'POST',
-                                            headers: { 'Authorization': `Bearer ${(user as any)?.token || ''}` }
-                                        });
-                                        const data = await res.json();
-                                        alert(data.message || "Tentativa concluída");
-                                        window.location.reload();
-                                    }
-                                } catch (e) { alert("Erro ao reparar"); } finally { setLoading(false); }
-                            }}
-                            className="mt-8 text-xs text-text-muted hover:text-text-primary underline"
-                        >
-                            Não vê sua conexão? Clique aqui para reparar.
-                        </button>
+
                     </div>
                 )}
             </div>

@@ -18,7 +18,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-    register: (name: string, email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+    register: (name: string, email: string, pass: string, whatsapp?: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => void;
     refreshUser: () => Promise<void>;
     isAuthenticated: boolean;
@@ -99,13 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const register = async (name: string, email: string, pass: string) => {
+    const register = async (name: string, email: string, pass: string, whatsapp?: string) => {
         try {
             const apiBase = '';
             const res = await fetch(`${apiBase}/api/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password: pass }),
+                body: JSON.stringify({ name, email, password: pass, whatsapp }),
             });
 
             const data = await res.json();

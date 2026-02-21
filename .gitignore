@@ -12,3 +12,13 @@ yarn-error.log*
 /src/generated/prisma
 /uploads
 temp
+
+# Backups and Debugging
+*.sql
+admin_verification.txt
+check_*.js
+debug_*.js
+*.log
+run_server_capture.js
+run_debug_*.js
+*.txt.bak

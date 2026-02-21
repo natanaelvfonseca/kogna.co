@@ -1,0 +1,27 @@
+PURGED:
+﻿LINE 1659: let targetUserId;
+LINE 1679: targetUserId = newUser.rows[0].id;
+LINE 1684: [name + "'s Organization", targetUserId]
+LINE 1686: await pool.query('UPDATE users SET organization_id = $1 WHERE id = $2', [newOrg.rows[0].id, targetUserId]);
+LINE 1691: targetUserId = targetUser.rows[0].id;
+LINE 1695: const existingPartner = await pool.query('SELECT id FROM partners WHERE user_id = $1', [targetUserId]);
+LINE 1702: const userRes = await pool.query('SELECT name FROM users WHERE id = $1', [targetUserId]);
+LINE 1711: [targetUserId, code]
+LINE 4106: const userId = await getUserId(req);
+LINE 4129: const userId = await getAuthenticatedUserId(req);
+LINE 4206: const userId = await getUserId(req);
+LINE 4255: const userId = await getUserId(req);
+LINE 4312: const userId = await getUserId(req);
+LINE 4985: const userId = await getAuthenticatedUserId(req);
+LINE 5043: const userId = await getAuthenticatedUserId(req);
+LINE 5288: const requesterId = await getAuthenticatedUserId(req);
+LINE 5389: const userId = await getAuthenticatedUserId(req);
+LINE 5407: const userId = await getAuthenticatedUserId(req);
+LINE 5427: const userId = await getAuthenticatedUserId(req);
+LINE 5522: const userId = await getAuthenticatedUserId(req);
+
+ADMIN:
+﻿LINE 5282: app.delete('/api/admin/users/:id', isAdmin, async (req, res) => {
+LINE 5287: // We'd need to know who is making the request, which comes from isAdmin middleware -> getAuthenticatedUserId
+LINE 5312: app.patch('/api/admin/users/:id/koins', isAdmin, async (req, res) => {
+LINE 5327: app.get('/api/admin/consumption', isAdmin, async (req, res) => {

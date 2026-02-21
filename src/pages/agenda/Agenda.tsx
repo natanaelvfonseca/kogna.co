@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
     Plus, Trash2, UserPlus, Clock, Ban, CalendarDays, Edit2,
-    ChevronLeft, ChevronRight, Loader2, Users, Calendar, Settings2, X, Check, Bug
+    ChevronLeft, ChevronRight, Loader2, Users, Calendar, Settings2, X, Check
 } from 'lucide-react';
-import { DebugModal, DebugLog } from '../../components/DebugModal';
+
 import { useNotifications } from '../../context/NotificationContext';
 
-const API_URL = 'http://localhost:3000/api';
+import { API_URL } from '../../config/api';
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const DIAS_SEMANA_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
@@ -81,20 +81,7 @@ export function Agenda() {
     const [editingAgendamento, setEditingAgendamento] = useState<Agendamento | null>(null);
     const [editForm, setEditForm] = useState({ date: '', time: '', notas: '' });
 
-    // Debugging
-    const [debugOpen, setDebugOpen] = useState(false);
-    const [logs, setLogs] = useState<DebugLog[]>([]);
 
-    const addLog = (type: DebugLog['type'], message: string, details?: any) => {
-        const newLog = {
-            timestamp: new Date().toLocaleTimeString(),
-            type,
-            message,
-            details
-        };
-        setLogs(prev => [newLog, ...prev]);
-
-    };
 
     const authHeaders = (): HeadersInit => ({
         'Content-Type': 'application/json',
@@ -104,70 +91,50 @@ export function Agenda() {
     // ── Fetch Functions ──────────────────────────────────
 
     const fetchVendedores = async () => {
-        addLog('info', 'Buscando vendedores...');
         try {
             const res = await fetch(`${API_URL}/vendedores`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setVendedores(data);
-                addLog('success', 'Vendedores carregados', data.length);
-            } else {
-                addLog('error', 'Falha ao buscar vendedores', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao buscar vendedores', e);
             console.error('Fetch vendedores error', e);
         }
     };
 
     const fetchAgendamentos = async (date?: string) => {
         const d = date || selectedDate.toISOString().split('T')[0];
-        addLog('info', `Buscando agendamentos para ${d}...`);
         try {
             const res = await fetch(`${API_URL}/agendamentos?data=${d}`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setAgendamentos(data);
-                addLog('success', 'Agendamentos carregados', data.length);
-            } else {
-                addLog('error', 'Falha ao buscar agendamentos', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao buscar agendamentos', e);
             console.error('Fetch agendamentos error', e);
         }
     };
 
     const fetchDisponibilidades = async (vendedorId: string) => {
-        addLog('info', `Buscando disponibilidades para vendedor ${vendedorId}...`);
         try {
             const res = await fetch(`${API_URL}/vendedores/${vendedorId}/disponibilidade`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setDisponibilidades(data);
-                addLog('success', 'Disponibilidades carregadas', data.length);
-            } else {
-                addLog('error', 'Falha ao buscar disponibilidades', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao buscar disponibilidades', e);
             console.error('Fetch disponibilidade error', e);
         }
     };
 
     const fetchBloqueios = async (vendedorId: string) => {
-        addLog('info', `Buscando bloqueios para vendedor ${vendedorId}...`);
         try {
             const res = await fetch(`${API_URL}/vendedores/${vendedorId}/bloqueios`, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setBloqueios(data);
-                addLog('success', 'Bloqueios carregados', data.length);
-            } else {
-                addLog('error', 'Falha ao buscar bloqueios', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao buscar bloqueios', e);
             console.error('Fetch bloqueios error', e);
         }
     };
@@ -186,7 +153,6 @@ export function Agenda() {
     const addVendedor = async () => {
         if (!newVendedor.nome || !newVendedor.email) return;
         setLoading(true);
-        addLog('info', 'Adicionando vendedor...', newVendedor);
         try {
             const res = await fetch(`${API_URL}/vendedores`, {
                 method: 'POST', headers: authHeaders(),
@@ -196,12 +162,8 @@ export function Agenda() {
                 await fetchVendedores();
                 setNewVendedor({ nome: '', email: '', whatsapp: '', porcentagem: 50 });
                 setShowAddVendedor(false);
-                addLog('success', 'Vendedor adicionado com sucesso');
-            } else {
-                addLog('error', 'Falha ao adicionar vendedor', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao adicionar vendedor', e);
             console.error(e);
         }
         setLoading(false);
@@ -209,18 +171,13 @@ export function Agenda() {
 
     const deleteVendedor = async (id: string) => {
         if (!confirm('Remover este vendedor?')) return;
-        addLog('info', `Removendo vendedor ${id}...`);
         try {
             const res = await fetch(`${API_URL}/vendedores/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (res.ok) {
                 await fetchVendedores();
                 if (selectedVendedor === id) setSelectedVendedor(null);
-                addLog('success', 'Vendedor removido com sucesso');
-            } else {
-                addLog('error', 'Falha ao remover vendedor', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao remover vendedor', e);
             console.error(e);
         }
     };
@@ -228,7 +185,6 @@ export function Agenda() {
     const addDisponibilidade = async () => {
         if (!selectedVendedor) return;
         setLoading(true);
-        addLog('info', 'Adicionando disponibilidade...', newDisp);
         try {
             const res = await fetch(`${API_URL}/vendedores/${selectedVendedor}/disponibilidade`, {
                 method: 'POST', headers: authHeaders(),
@@ -237,29 +193,20 @@ export function Agenda() {
             if (res.ok) {
                 await fetchDisponibilidades(selectedVendedor);
                 setShowAddDisp(false);
-                addLog('success', 'Disponibilidade adicionada com sucesso');
-            } else {
-                addLog('error', 'Falha ao adicionar disponibilidade', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao adicionar disponibilidade', e);
             console.error(e);
         }
         setLoading(false);
     };
 
     const deleteDisponibilidade = async (id: string) => {
-        addLog('info', `Excluindo disponibilidade ${id}...`);
         try {
             const res = await fetch(`${API_URL}/disponibilidade/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (res.ok) {
                 if (selectedVendedor) await fetchDisponibilidades(selectedVendedor);
-                addLog('success', 'Disponibilidade excluída com sucesso');
-            } else {
-                addLog('error', 'Falha ao excluir disponibilidade', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao excluir disponibilidade', e);
             console.error(e);
         }
     };
@@ -267,7 +214,6 @@ export function Agenda() {
     const addBloqueio = async () => {
         if (!selectedVendedor || !newBloqueio.dataInicio || !newBloqueio.dataFim) return;
         setLoading(true);
-        addLog('info', 'Adicionando bloqueio...', newBloqueio);
         try {
             const res = await fetch(`${API_URL}/vendedores/${selectedVendedor}/bloqueios`, {
                 method: 'POST', headers: authHeaders(),
@@ -277,46 +223,32 @@ export function Agenda() {
                 await fetchBloqueios(selectedVendedor);
                 setShowAddBloqueio(false);
                 setNewBloqueio({ dataInicio: '', dataFim: '', motivo: '' });
-                addLog('success', 'Bloqueio adicionado com sucesso');
-            } else {
-                addLog('error', 'Falha ao adicionar bloqueio', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao adicionar bloqueio', e);
             console.error(e);
         }
         setLoading(false);
     };
 
     const deleteBloqueio = async (id: string) => {
-        addLog('info', `Excluindo bloqueio ${id}...`);
         try {
             const res = await fetch(`${API_URL}/bloqueios/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (res.ok) {
                 if (selectedVendedor) await fetchBloqueios(selectedVendedor);
-                addLog('success', 'Bloqueio excluído com sucesso');
-            } else {
-                addLog('error', 'Falha ao excluir bloqueio', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao excluir bloqueio', e);
             console.error(e);
         }
     };
 
     const deleteAgendamento = async (id: string) => {
         if (!confirm('Excluir este agendamento?')) return;
-        addLog('info', `Excluindo agendamento ${id}...`);
         try {
             const res = await fetch(`${API_URL}/agendamentos/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (res.ok) {
                 await fetchAgendamentos();
-                addLog('success', 'Agendamento excluído com sucesso');
-            } else {
-                addLog('error', 'Falha ao excluir agendamento', await res.text());
             }
         } catch (e) {
-            addLog('error', 'Erro ao excluir agendamento', e);
             console.error(e);
         }
     };
@@ -334,7 +266,6 @@ export function Agenda() {
     const updateAgendamento = async () => {
         if (!editingAgendamento) return;
         setLoading(true);
-        addLog('info', 'Atualizando agendamento...', { id: editingAgendamento.id, form: editForm });
         try {
             const dataHora = `${editForm.date}T${editForm.time}:00`;
             const res = await fetch(`${API_URL}/agendamentos/${editingAgendamento.id}`, {
@@ -345,7 +276,6 @@ export function Agenda() {
             if (res.ok) {
                 await fetchAgendamentos();
                 setEditingAgendamento(null);
-                addLog('success', 'Agendamento atualizado com sucesso');
                 showToast('Sucesso', 'Agendamento atualizado com sucesso', 'success');
             } else {
                 let errorMessage = 'Erro desconhecido';
@@ -355,8 +285,6 @@ export function Agenda() {
                 } catch (e) {
                     errorMessage = await res.text();
                 }
-                addLog('error', 'Falha ao atualizar agendamento', errorMessage);
-
                 if (res.status === 409) {
                     showToast('Aviso', errorMessage, 'warning');
                 } else {
@@ -364,7 +292,6 @@ export function Agenda() {
                 }
             }
         } catch (e) {
-            addLog('error', 'Erro ao atualizar agendamento', e);
             console.error(e);
             showToast('Erro', 'Falha na conexão com o servidor', 'error');
         }
@@ -447,13 +374,6 @@ export function Agenda() {
                     <h1 className="text-2xl font-bold text-text-primary">Agenda</h1>
                     <p className="text-text-secondary text-sm">Gerencie vendedores, horários e agendamentos</p>
                 </div>
-                <button
-                    onClick={() => setDebugOpen(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-text-muted bg-muted-secondary/50 hover:text-text-primary hover:bg-muted-secondary rounded-lg transition-colors border border-border/50"
-                >
-                    <Bug size={14} />
-                    Debug Info
-                </button>
             </div>
 
             {/* Tabs */}
@@ -947,12 +867,6 @@ export function Agenda() {
                 </div>
             )}
 
-            <DebugModal
-                isOpen={debugOpen}
-                onClose={() => setDebugOpen(false)}
-                logs={logs}
-                title="Agenda Debug"
-            />
         </div>
     );
 }
