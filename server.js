@@ -7370,6 +7370,22 @@ setInterval(async () => {
     }
 }, ONE_HOUR);
 
+// Serve frontend static files (production build)
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+    console.log('Serving frontend from dist folder');
+    app.use(express.static(distPath));
+    
+    // SPA fallback - serve index.html for non-API routes
+    app.get('*', (req, res, next) => {
+        // Skip API routes and uploads
+        if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/auth/')) {
+            return next();
+        }
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+}
+
 // Serve uploads
 app.use('/uploads', express.static('uploads'));
 
