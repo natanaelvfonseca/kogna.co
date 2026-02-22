@@ -46,7 +46,7 @@ export function Dashboard() {
         const fetchMetrics = async () => {
             try {
                 setLoading(true);
-                
+
 
                 if (!authToken) {
                     setError("Erro: Usuário não autenticado (sem token).");
@@ -59,7 +59,7 @@ export function Dashboard() {
                     }
                 });
 
-                
+
 
                 if (res.ok) {
                     const data = await res.json();
@@ -104,8 +104,8 @@ export function Dashboard() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-text-primary">Dashboard</h1>
-                    <p className="text-text-secondary">Visão geral da sua operação</p>
+                    <h1 className="text-2xl font-bold text-text-primary">Olá {user?.name || 'Visitante'}!</h1>
+                    <p className="text-text-secondary">Você no comando da sua operação. A IA cuida do resto.</p>
                 </div>
                 <div className="text-sm text-text-secondary">
                     Última atualização: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
