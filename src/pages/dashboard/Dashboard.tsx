@@ -105,7 +105,17 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary">Olá {user?.name || 'Visitante'}!</h1>
-                    <p className="text-text-secondary">Você no comando da sua operação. A IA cuida do resto.</p>
+                    <p className="text-text-secondary mt-1">
+                        Você no comando da sua operação.{' '}
+                        <span className="relative inline-block ml-1">
+                            {/* Glowing background */}
+                            <span className="absolute inset-0 bg-primary/20 blur-md rounded-full animate-pulse"></span>
+                            {/* Gradient text */}
+                            <span className="relative font-semibold text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-500 tracking-wide drop-shadow-sm">
+                                A IA cuida do resto.
+                            </span>
+                        </span>
+                    </p>
                 </div>
                 <div className="text-sm text-text-secondary">
                     Última atualização: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}

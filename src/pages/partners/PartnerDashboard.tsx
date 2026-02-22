@@ -92,7 +92,7 @@ export const PartnerDashboard: React.FC = () => {
 
     const copyLink = () => {
         if (partnerData) {
-            navigator.clipboard.writeText(`https://kogna.co/p/${partnerData.affiliateCode}`);
+            navigator.clipboard.writeText(`https://ia.kogna.co/p/${partnerData.affiliateCode}`);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
@@ -184,7 +184,7 @@ export const PartnerDashboard: React.FC = () => {
                         Seu Link:
                     </div>
                     <div className="px-4 font-mono text-primary font-medium">
-                        kogna.co/p/{partnerData?.affiliateCode}
+                        ia.kogna.co/p/{partnerData?.affiliateCode}
                     </div>
                     <button
                         onClick={copyLink}
