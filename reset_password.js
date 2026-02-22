@@ -5,11 +5,11 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 require('dotenv').config();
 
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres:Louiseemel%40%23%262020@localhost:5432/kogna";
+const connectionString = process.env.DATABASE_URL;
 
 const pool = new Pool({
     connectionString,
-    ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')) ? { rejectUnauthorized: false } : false,
+    ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost') && !process.env.DATABASE_URL.includes('sslmode=disable')) ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 5000
 });
 
