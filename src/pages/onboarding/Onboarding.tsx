@@ -7,7 +7,6 @@ import { useNotifications } from '../../context/NotificationContext';
 import { FileUpload } from '../../components/onboarding/FileUpload';
 import { agentTemplates, type AgentTemplate } from '../../data/agentTemplates';
 import confetti from 'canvas-confetti';
-import { Bug } from 'lucide-react';
 import { DebugModal, DebugLog } from '../../components/DebugModal';
 
 // API Configuration
