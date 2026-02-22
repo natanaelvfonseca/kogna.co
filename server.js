@@ -90,10 +90,15 @@ function log(msg) {
   try {
     const time = new Date().toISOString();
     const logMsg = `[${time}] ${msg}`;
-    fs.appendFileSync("server_debug.log", logMsg + "\n");
-    // console.log(logMsg); // Disabled for production
+    // Always use console.log in production/Vercel for visibility
+    console.log(logMsg);
+    
+    // File logging only for non-Vercel
+    if (process.env.VERCEL !== '1') {
+      fs.appendFileSync("server_debug.log", logMsg + "\n");
+    }
   } catch (e) {
-    // console.error('Logging failed:', e); // Disabled for production
+    console.error('Logging failed:', e.message);
   }
 }
 
@@ -111,7 +116,8 @@ const pool = new Pool({
   ssl: (process.env.DATABASE_URL &&
           !process.env.DATABASE_URL.includes('localhost') &&
           !process.env.DATABASE_URL.includes('127.0.0.1') &&
-          !process.env.DATABASE_URL.includes('sslmode=disable')) ? { rejectUnauthorized: false } : false,
+          !process.env.DATABASE_URL.includes('sslmode=disable') &&
+          !process.env.DATABASE_URL.includes('ssl=false')) ? { rejectUnauthorized: false } : false,
   connectionTimeoutMillis: 5000, // Fail fast
 });
 
@@ -8870,8 +8876,10 @@ const fixNatanaelData = async () => {
   }
 };
 
-// Run the fix after a short delay to ensure DB connection
-setTimeout(fixNatanaelData, 5000);
+// Run the fix after a short delay to ensure DB connection (only locally)
+if (process.env.VERCEL !== '1') {
+  setTimeout(fixNatanaelData, 5000);
+}
 
 // Start Server only if NOT running on Vercel
 if (process.env.VERCEL !== '1') {
