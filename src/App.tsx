@@ -27,6 +27,8 @@ import { Checkout } from './pages/checkout/Checkout';
 import { CheckoutSuccess } from './pages/checkout/CheckoutSuccess';
 import { FollowupManager } from './pages/recovery/FollowupManager';
 
+import { ReferralRedirect } from './pages/partners/ReferralRedirect';
+
 function App() {
     return (
         <ThemeProvider defaultTheme="light" storageKey="kogna-theme-v2">
@@ -34,6 +36,7 @@ function App() {
                 <AuthProvider>
                     <NotificationProvider>
                         <Routes>
+                            <Route path="/p/:code" element={<ReferralRedirect />} />
                             <Route path="/login" element={<Login />} />
                             <Route path="/register" element={<Register />} />
                             <Route path="/onboarding" element={<Onboarding />} />

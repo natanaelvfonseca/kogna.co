@@ -101,11 +101,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const register = async (name: string, email: string, pass: string, whatsapp?: string) => {
         try {
+            // Check for affiliate code
+            let affiliateCode = undefined;
+            try {
+                const storedAffiliate = localStorage.getItem('kogna_affiliate_data');
+                if (storedAffiliate) {
+                    const data = JSON.parse(storedAffiliate);
+                    // Optional: check expiration (e.g. 30 days) if needed
+                    affiliateCode = data.code;
+                }
+            } catch (e) {
+                console.error('Error parsing affiliate data:', e);
+            }
+
             const apiBase = '';
             const res = await fetch(`${apiBase}/api/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password: pass, whatsapp }),
+                body: JSON.stringify({ name, email, password: pass, whatsapp, affiliateCode }),
             });
 
             const data = await res.json();
@@ -113,6 +126,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!res.ok) {
                 return { success: false, error: data.error || 'Falha no cadastro' };
             }
+
+            // Registration successful! Clear affiliate data
+            localStorage.removeItem('kogna_affiliate_data');
 
             localStorage.setItem('kogna_token', data.token);
             localStorage.setItem('kogna_user', JSON.stringify(data.user));

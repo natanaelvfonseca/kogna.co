@@ -92,7 +92,7 @@ function log(msg) {
     const logMsg = `[${time}] ${msg}`;
     // Always use console.log in production/Vercel for visibility
     console.log(logMsg);
-    
+
     // File logging only for non-Vercel
     if (process.env.VERCEL !== '1') {
       fs.appendFileSync("server_debug.log", logMsg + "\n");
@@ -114,11 +114,11 @@ if (!connectionString) {
 let poolConfig = {
   connectionString,
   ssl: (process.env.DATABASE_URL &&
-          !process.env.DATABASE_URL.includes('localhost') &&
-          !process.env.DATABASE_URL.includes('127.0.0.1') &&
-          !process.env.DATABASE_URL.includes('sslmode=disable') &&
-          !process.env.DATABASE_URL.includes('ssl=false') &&
-          process.env.DB_SSL !== 'false') ? { rejectUnauthorized: false } : false,
+    !process.env.DATABASE_URL.includes('localhost') &&
+    !process.env.DATABASE_URL.includes('127.0.0.1') &&
+    !process.env.DATABASE_URL.includes('sslmode=disable') &&
+    !process.env.DATABASE_URL.includes('ssl=false') &&
+    process.env.DB_SSL !== 'false') ? { rejectUnauthorized: false } : false,
   connectionTimeoutMillis: 5000, // Fail fast
 };
 
@@ -141,9 +141,9 @@ const initPool = async () => {
   } catch (err) {
     if (err.message && err.message.includes("The server does not support SSL connections")) {
       log("Warning: Server does not support SSL. Retrying with SSL disabled...");
-      
+
       pool.end().catch(e => log('Error ending old pool: ' + e.message));
-      
+
       poolConfig.ssl = false;
       pool = new Pool(poolConfig);
 
@@ -1148,6 +1148,40 @@ app.post("/api/ia-configs", verifyJWT, async (req, res) => {
     res.json(newConfig.rows[0]);
   } catch (err) {
     log("Save IA Config error: " + err.toString());
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Register Affiliate Click
+app.post("/api/partners/click", async (req, res) => {
+  const { affiliateCode } = req.body;
+
+  if (!affiliateCode) {
+    return res.status(400).json({ error: "affiliateCode is required" });
+  }
+
+  try {
+    const partnerRes = await pool.query(
+      "SELECT id FROM partners WHERE affiliate_code = $1",
+      [affiliateCode]
+    );
+
+    if (partnerRes.rows.length === 0) {
+      return res.status(404).json({ error: "Partner not found" });
+    }
+
+    const partnerId = partnerRes.rows[0].id;
+    const ipAddress = req.ip || req.connection.remoteAddress || "unknown";
+    const userAgent = req.headers["user-agent"] || "unknown";
+
+    await pool.query(
+      "INSERT INTO partner_clicks (partner_id, ip_address, user_agent, created_at) VALUES ($1, $2, $3, NOW())",
+      [partnerId, ipAddress, userAgent]
+    );
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    log("Register Click error: " + err.toString());
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -2321,10 +2355,10 @@ app.get("/api/me", verifyJWT, async (req, res) => {
       company_phone: row.company_phone,
       organization: row.org_id
         ? {
-            id: row.org_id,
-            name: row.org_name,
-            planType: row.plan_type,
-          }
+          id: row.org_id,
+          name: row.org_name,
+          planType: row.plan_type,
+        }
         : undefined,
     };
 
@@ -3950,9 +3984,9 @@ app.get("/api/debug-connection", async (req, res) => {
     );
     const instancesByOrg = user.organization_id
       ? await pool.query(
-          "SELECT * FROM whatsapp_instances WHERE organization_id = $1",
-          [user.organization_id],
-        )
+        "SELECT * FROM whatsapp_instances WHERE organization_id = $1",
+        [user.organization_id],
+      )
       : { rows: [] };
 
     res.json({
@@ -5171,7 +5205,7 @@ app.delete(
     } catch (err) {
       log(
         "[ERROR] DELETE /api/agents/:id/knowledge/:filename error: " +
-          err.toString(),
+        err.toString(),
       );
       res
         .status(500)
@@ -5330,7 +5364,7 @@ app.post(
         if (typeof existingFiles === "string") {
           try {
             existingFiles = JSON.parse(existingFiles);
-          } catch (e) {}
+          } catch (e) { }
         }
       }
 
@@ -6714,7 +6748,7 @@ app.post("/api/payments/create-preference", verifyJWT, async (req, res) => {
   } catch (error) {
     log(
       "[ERROR] POST /api/payments/create-preference: " +
-        (error.message || JSON.stringify(error)),
+      (error.message || JSON.stringify(error)),
     );
     res.status(500).json({
       error: "Failed to create preference",
@@ -6831,7 +6865,7 @@ app.post("/api/payments/process-payment", verifyJWT, async (req, res) => {
               `INSERT INTO billing_history (user_id, amount, value, status) VALUES ($1, $2, $3, 'approved')`,
               [userId, koinsToCredit, paymentAmount],
             )
-            .catch(() => {});
+            .catch(() => { });
         }
 
         // Notification
@@ -6844,10 +6878,10 @@ app.post("/api/payments/process-payment", verifyJWT, async (req, res) => {
               `Seu pagamento de R$${paymentAmount.toFixed(2)} foi aprovado. ${koinsToCredit} Koins foram adicionados à sua conta!`,
             ],
           )
-          .catch(() => {});
+          .catch(() => { });
 
         // Affiliate commission
-        await processAffiliateCommission(userId, paymentAmount).catch(() => {});
+        await processAffiliateCommission(userId, paymentAmount).catch(() => { });
       } catch (koinErr) {
         log(`[KOINS-ERROR] Failed to credit koins: ${koinErr.message}`);
       }
@@ -6867,7 +6901,7 @@ app.post("/api/payments/process-payment", verifyJWT, async (req, res) => {
   } catch (error) {
     log(
       "[ERROR] POST /api/payments/process-payment: " +
-        (error.message || JSON.stringify(error)),
+      (error.message || JSON.stringify(error)),
     );
     res.status(500).json({
       error: "Payment processing failed",
@@ -6995,7 +7029,7 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
               );
               break; // Assume single product for now or first one wins
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     }
@@ -7060,7 +7094,7 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
   } catch (error) {
     log(
       "[ERROR] POST /api/payments/mercadopago-ipn: " +
-        (error.message || JSON.stringify(error)),
+      (error.message || JSON.stringify(error)),
     );
     // Always return 200 to MP to avoid retries for handled errors
     res.status(200).send("OK");
@@ -7270,7 +7304,7 @@ app.get("/api/payments/verify/:paymentId", verifyJWT, async (req, res) => {
   } catch (error) {
     log(
       "[ERROR] GET /api/payments/verify: " +
-        (error.message || JSON.stringify(error)),
+      (error.message || JSON.stringify(error)),
     );
     res
       .status(500)
@@ -7408,7 +7442,7 @@ app.put("/api/products/:id", verifyJWT, verifyAdmin, async (req, res) => {
   } catch (err) {
     log(
       `[ERROR] PUT /api/products/${req.params.id}: ` +
-        (err.stack || err.message),
+      (err.stack || err.message),
     );
     if (!res.headersSent) {
       res.status(500).json({ error: "Database error", details: err.message });
@@ -8101,7 +8135,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
                     [orgId, `%${remoteJid.split("@")[0]}%`],
                   );
                   leadId = leadRes.rows[0]?.id;
-                } catch (e) {}
+                } catch (e) { }
 
                 if (leadId) {
                   const existingAgendamentos = await pool.query(
@@ -8148,7 +8182,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
                   [orgId, `%${remoteJid.split("@")[0]}%`],
                 );
                 leadId = leadRes.rows[0]?.id;
-              } catch (e) {}
+              } catch (e) { }
 
               if (!leadId) {
                 toolResult = {
@@ -8899,7 +8933,7 @@ if (process.env.VERCEL !== '1') {
       `[${new Date().toISOString()}] Attempting to start server on port ${PORT}\n`,
     );
     console.log("STEP 4: Attemping listen");
-    const HOST = process.env.HOST || "0.0.0.0"; 
+    const HOST = process.env.HOST || "0.0.0.0";
     app.listen(PORT, HOST, () => {
       const msg = `[${new Date().toISOString()}] Server running on http://${HOST}:${PORT} (Environment: ${process.env.NODE_ENV})`;
       log(msg);
