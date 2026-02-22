@@ -1,4 +1,0 @@
-[dotenv@17.3.1] injecting env (11) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
-Usuário encontrado: Natanael Fonseca (359cf24a-5ab7-4a44-9411-c79631691c7c)
-Instâncias atuais: 1
-Sucesso! 1 instâncias foram removidas.

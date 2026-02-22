@@ -1,4 +1,0 @@
-﻿LINE 5282: app.delete('/api/admin/users/:id', isAdmin, async (req, res) => {
-LINE 5287: // We'd need to know who is making the request, which comes from isAdmin middleware -> getAuthenticatedUserId
-LINE 5312: app.patch('/api/admin/users/:id/koins', isAdmin, async (req, res) => {
-LINE 5327: app.get('/api/admin/consumption', isAdmin, async (req, res) => {

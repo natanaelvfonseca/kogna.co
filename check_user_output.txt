@@ -1,3 +1,0 @@
-Checking user natanael@kogna.co...
-User FOUND: {"id":"359cf24a-5ab7-4a44-9411-c79631691c7c","email":"natanael@kogna.co","name":"Natanael Fonseca","password":"$2b$10$1KX1uw4/C6.ziUgJfY98b.1Q7NWgztXhtnEpkBe.Yfc0uXw0RyFTy","organization_id":"7f10cd05-71b4-4e36-92b0-10be86aebed0","koins_balance":31485}
-Password hash present (length 60)

@@ -21,4 +21,7 @@ debug_*.js
 *.log
 run_server_capture.js
 run_debug_*.js
+*.txt
 *.txt.bak
+.env.local.bak
+git_*.txt
