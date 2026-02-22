@@ -8,22 +8,22 @@ export default defineConfig({
         host: true, // Listen on all addresses
         proxy: {
             '/api': {
-                target: 'http://localhost:3000',
+                target: `http://localhost:${process.env.PORT || 8080}`,
                 changeOrigin: true,
                 secure: false,
             },
             '/auth': {
-                target: 'http://localhost:3000',
+                target: `http://localhost:${process.env.PORT || 8080}`,
                 changeOrigin: true,
                 secure: false,
             },
             '/chat': {
-                target: 'http://localhost:3000',
+                target: `http://localhost:${process.env.PORT || 8080}`,
                 changeOrigin: true,
                 secure: false,
             },
             '/message': {
-                target: 'http://localhost:3000',
+                target: `http://localhost:${process.env.PORT || 8080}`,
                 changeOrigin: true,
                 secure: false,
             }

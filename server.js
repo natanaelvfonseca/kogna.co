@@ -51,6 +51,7 @@ console.log("STEP 2: DB Pool imported");
 const app = express();
 const port = 8080;
 console.log("STEP 3: Express app created on port " + port);
+app.set('trust proxy', 1);
 
 // Security Middleware
 app.use(helmet());
@@ -107,12 +108,10 @@ if (!connectionString) {
 
 const pool = new Pool({
   connectionString,
-  ssl:
-    process.env.DATABASE_URL &&
-    !process.env.DATABASE_URL.includes("localhost") &&
-    !process.env.DATABASE_URL.includes("sslmode=disable")
-      ? { rejectUnauthorized: false }
-      : false,
+  ssl: (process.env.DATABASE_URL &&
+          !process.env.DATABASE_URL.includes('localhost') &&
+          !process.env.DATABASE_URL.includes('127.0.0.1') &&
+          !process.env.DATABASE_URL.includes('sslmode=disable')) ? { rejectUnauthorized: false } : false,
   connectionTimeoutMillis: 5000, // Fail fast
 });
 
@@ -8877,14 +8876,14 @@ setTimeout(fixNatanaelData, 5000);
 // Start Server only if running directly
 // Start Server unconditional
 // Start Server unconditional with direct file logging
-const PORT = 3000;
+const PORT = process.env.PORT || 8080;
 try {
   fs.appendFileSync(
     "server_lifecycle.log",
     `[${new Date().toISOString()}] Attempting to start server on port ${PORT}\n`,
   );
   console.log("STEP 4: Attemping listen");
-  const HOST = process.env.HOST || "127.0.0.1"; // Force IPv4 binding by default for Windows localhost
+  const HOST = process.env.HOST || "0.0.0.0"; 
   app.listen(PORT, HOST, () => {
     const msg = `[${new Date().toISOString()}] Server running on http://${HOST}:${PORT} (Environment: ${process.env.NODE_ENV})`;
     log(msg);
