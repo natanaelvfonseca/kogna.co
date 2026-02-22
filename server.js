@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI, { toFile } from "openai";
 import { MercadoPagoConfig, Preference } from "mercadopago";
-const pdfParser = require("pdf-parse");
+const pdfParser = null; // Lazy loaded in getAgentKnowledge
 import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
@@ -403,29 +403,13 @@ async function getAgentKnowledge(trainingFiles) {
         log(`[RAG] Parsing PDF: ${file.originalName}`);
         const dataBuffer = fs.readFileSync(filePath);
 
-        // Handle various import styles
         let data;
         try {
-          if (typeof pdfParser === "function") {
-            data = await pdfParser(dataBuffer);
-          } else if (pdfParser.PDFParse) {
-            const instance = new pdfParser.PDFParse({ data: dataBuffer });
-            data = await instance.getText();
-          } else if (
-            pdfParser.default &&
-            typeof pdfParser.default === "function"
-          ) {
-            data = await pdfParser.default(dataBuffer);
-          } else {
-            throw new Error("No valid PDF parsing function found");
-          }
-
-          log(`[RAG] PDF parsed. Text length: ${data?.text?.length || 0}`);
-          if (data?.text) {
-            combinedText += `\n--- Arquivo: ${file.originalName} ---\n${data.text}\n`;
-          }
+          // Lazy load pdf-parse to avoid binary/environment issues on Vercel/startup
+          const pdf = require("pdf-parse");
+          data = await pdf(dataBuffer);
         } catch (err) {
-          log(`[RAG] Error parsing PDF ${file.originalName}: ${err.message}`);
+          log(`[RAG] Error loading/executing pdf-parse: ${err.message}`);
           throw err;
         }
       } else if (file.mimeType === "text/plain" || file.path.endsWith(".txt")) {
