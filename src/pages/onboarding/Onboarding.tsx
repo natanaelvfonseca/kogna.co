@@ -506,15 +506,6 @@ export function Onboarding() {
 
                     {/* Header */}
                     <div className="mb-10 text-center relative w-full">
-                        <div className="absolute top-0 right-0">
-                            <button
-                                onClick={() => setDebugOpen(true)}
-                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted hover:text-foreground hover:bg-muted/80 rounded-md transition-colors"
-                            >
-                                <Bug size={14} />
-                                Debug
-                            </button>
-                        </div>
                         <h1 className="text-4xl font-display font-bold text-text-primary bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-500">
                             Construindo sua Máquina
                         </h1>
