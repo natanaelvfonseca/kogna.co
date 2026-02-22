@@ -111,37 +111,62 @@ if (!connectionString) {
   process.exit(1);
 }
 
-const pool = new Pool({
+let poolConfig = {
   connectionString,
   ssl: (process.env.DATABASE_URL &&
           !process.env.DATABASE_URL.includes('localhost') &&
           !process.env.DATABASE_URL.includes('127.0.0.1') &&
           !process.env.DATABASE_URL.includes('sslmode=disable') &&
-          !process.env.DATABASE_URL.includes('ssl=false')) ? { rejectUnauthorized: false } : false,
+          !process.env.DATABASE_URL.includes('ssl=false') &&
+          process.env.DB_SSL !== 'false') ? { rejectUnauthorized: false } : false,
   connectionTimeoutMillis: 5000, // Fail fast
+};
+
+let pool = new Pool(poolConfig);
+
+pool.on("error", (err) => {
+  log("Unexpected error on idle client: " + err.toString());
 });
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Resilient Connection Check
-pool
-  .connect()
-  .then((client) => {
-    log("Connected to Database successfully!");
+// Resilient Connection Check with SSL fallback
+const initPool = async () => {
+  try {
+    const client = await pool.connect();
+    log("Connected to Database successfully (SSL: " + !!poolConfig.ssl + ")!");
     client.release();
-  })
-  .catch((err) => {
-    log(
-      "CRITICAL: Database connection failed on startup. API will run, but DB features will fail.",
-    );
-    log("DB Error: " + err.message);
-  });
+  } catch (err) {
+    if (err.message && err.message.includes("The server does not support SSL connections")) {
+      log("Warning: Server does not support SSL. Retrying with SSL disabled...");
+      
+      pool.end().catch(e => log('Error ending old pool: ' + e.message));
+      
+      poolConfig.ssl = false;
+      pool = new Pool(poolConfig);
 
-pool.on("error", (err) => {
-  log("Unexpected error on idle client: " + err.toString());
-});
+      pool.on("error", (e) => {
+        log("Unexpected error on idle client (ssl: false): " + e.toString());
+      });
+
+      try {
+        const client = await pool.connect();
+        log("Connected to Database successfully with SSL disabled!");
+        client.release();
+      } catch (retryErr) {
+        log("CRITICAL: Database connection failed on retry without SSL.");
+        log("DB Error: " + retryErr.message);
+      }
+    } else {
+      log("CRITICAL: Database connection failed on startup. API will run, but DB features will fail.");
+      log("DB Error: " + err.message);
+    }
+  }
+};
+
+initPool();
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
