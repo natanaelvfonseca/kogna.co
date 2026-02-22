@@ -8805,9 +8805,9 @@ setInterval(async () => {
 }, ONE_HOUR);
 
 // Serve frontend static files (production build)
-const distPath = path.join(__dirname, "dist");
+const distPath = path.resolve(__dirname, "dist");
 if (fs.existsSync(distPath)) {
-  console.log("Serving frontend from dist folder");
+  console.log(`Serving frontend from ${distPath}`);
   app.use(express.static(distPath));
 
   // SPA fallback - serve index.html for non-API routes
@@ -8873,34 +8873,34 @@ const fixNatanaelData = async () => {
 // Run the fix after a short delay to ensure DB connection
 setTimeout(fixNatanaelData, 5000);
 
-// Start Server only if running directly
-// Start Server unconditional
-// Start Server unconditional with direct file logging
-const PORT = process.env.PORT || 8080;
-try {
-  fs.appendFileSync(
-    "server_lifecycle.log",
-    `[${new Date().toISOString()}] Attempting to start server on port ${PORT}\n`,
-  );
-  console.log("STEP 4: Attemping listen");
-  const HOST = process.env.HOST || "0.0.0.0"; 
-  app.listen(PORT, HOST, () => {
-    const msg = `[${new Date().toISOString()}] Server running on http://${HOST}:${PORT} (Environment: ${process.env.NODE_ENV})`;
-    log(msg);
-    console.log(msg);
-    fs.appendFileSync("server_lifecycle.log", msg + "\n");
-  });
-} catch (e) {
-  const errMsg = `[${new Date().toISOString()}] FAILED to start server: ${e.message}`;
-  log(errMsg);
-  console.error(errMsg);
-  fs.appendFileSync("server_lifecycle.log", errMsg + "\n");
-}
+// Start Server only if NOT running on Vercel
+if (process.env.VERCEL !== '1') {
+  const PORT = process.env.PORT || 8080;
+  try {
+    fs.appendFileSync(
+      "server_lifecycle.log",
+      `[${new Date().toISOString()}] Attempting to start server on port ${PORT}\n`,
+    );
+    console.log("STEP 4: Attemping listen");
+    const HOST = process.env.HOST || "0.0.0.0"; 
+    app.listen(PORT, HOST, () => {
+      const msg = `[${new Date().toISOString()}] Server running on http://${HOST}:${PORT} (Environment: ${process.env.NODE_ENV})`;
+      log(msg);
+      console.log(msg);
+      fs.appendFileSync("server_lifecycle.log", msg + "\n");
+    });
+  } catch (e) {
+    const errMsg = `[${new Date().toISOString()}] FAILED to start server: ${e.message}`;
+    log(errMsg);
+    console.error(errMsg);
+    fs.appendFileSync("server_lifecycle.log", errMsg + "\n");
+  }
 
-// Force Keep-Alive
-setInterval(() => {
-  log("Server heartbeat - Process is alive");
-}, 5000);
+  // Force Keep-Alive (Only local/direct)
+  setInterval(() => {
+    log("Server heartbeat - Process is alive");
+  }, 5000);
+}
 
 process.on("uncaughtException", (err) => {
   log("Uncaught Exception: " + err.toString());
