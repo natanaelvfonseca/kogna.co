@@ -269,7 +269,7 @@ export function Onboarding() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer mock-jwt-token-for-${user?.id}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     companyName: formData.companyName,
@@ -321,8 +321,7 @@ export function Onboarding() {
         files.forEach(file => { uploadData.append('files', file); });
 
         try {
-            const headers: HeadersInit = {};
-            if (user?.id) headers['Authorization'] = `Bearer mock-jwt-token-for-${user.id}`;
+            const headers: HeadersInit = { 'Authorization': `Bearer ${token}` };
             const res = await fetch(`${API_URL}/ia-configs/upload`, {
                 method: 'POST',
                 headers: headers,

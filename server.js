@@ -1152,6 +1152,46 @@ app.post("/api/ia-configs", verifyJWT, async (req, res) => {
   }
 });
 
+// UPLOAD Knowledge Files for Onboarding (ia-configs)
+app.post(
+  "/api/ia-configs/upload",
+  verifyJWT,
+  upload.array("files"),
+  async (req, res) => {
+    try {
+      const userId = req.userId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+      }
+
+      const newFiles = req.files.map((file) => ({
+        originalName: file.originalname,
+        filename: file.filename,
+        path: file.path,
+        mimeType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+      }));
+
+      // Save file metadata to the most recent ia_config for this user
+      await pool.query(
+        `UPDATE ia_configs SET updated_at = NOW() WHERE user_id = $1 AND id = (
+           SELECT id FROM ia_configs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+         )`,
+        [userId]
+      );
+
+      log(`[ONBOARDING] Uploaded ${req.files.length} files for user ${userId}`);
+      res.json({ success: true, files: newFiles });
+    } catch (err) {
+      log("[ERROR] /api/ia-configs/upload: " + err.toString());
+      res.status(500).json({ error: "Upload failed", details: err.message });
+    }
+  }
+);
+
 // Register Affiliate Click
 app.post("/api/partners/click", async (req, res) => {
   const { affiliateCode } = req.body;
@@ -3190,6 +3230,68 @@ app.get(
 );
 
 // --- Leads Table Migration (self-healing) ---
+
+// ==================== EVOLUTION API PROXY (Chat) ====================
+// These proxy endpoints are required in production (Vercel) where the Vite dev proxy isn't available.
+// The frontend calls /chat/findChats/:instance and /chat/findMessages/:instance directly in dev (via Vite proxy).
+// In production (Vercel), these requests serve the React SPA. This proxy bridges that gap.
+
+// POST /chat/findChats/:instance — proxy to Evolution API
+app.post("/chat/findChats/:instanceName", verifyJWT, async (req, res) => {
+  const { instanceName } = req.params;
+  const evolutionUrl = process.env.EVOLUTION_API_URL;
+  const evolutionKey = process.env.EVOLUTION_API_KEY;
+  if (!evolutionUrl || !evolutionKey) {
+    return res.status(500).json({ error: "Evolution API not configured" });
+  }
+  try {
+    const response = await fetch(
+      `${evolutionUrl}/chat/findChats/${instanceName}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: evolutionKey,
+        },
+        body: JSON.stringify(req.body || {}),
+      }
+    );
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err) {
+    log("[ERROR] Evolution proxy /chat/findChats: " + err.message);
+    res.status(500).json({ error: "Evolution API proxy error" });
+  }
+});
+
+// POST /chat/findMessages/:instance — proxy to Evolution API
+app.post("/chat/findMessages/:instanceName", verifyJWT, async (req, res) => {
+  const { instanceName } = req.params;
+  const evolutionUrl = process.env.EVOLUTION_API_URL;
+  const evolutionKey = process.env.EVOLUTION_API_KEY;
+  if (!evolutionUrl || !evolutionKey) {
+    return res.status(500).json({ error: "Evolution API not configured" });
+  }
+  try {
+    const response = await fetch(
+      `${evolutionUrl}/chat/findMessages/${instanceName}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: evolutionKey,
+        },
+        body: JSON.stringify(req.body || {}),
+      }
+    );
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err) {
+    log("[ERROR] Evolution proxy /chat/findMessages: " + err.message);
+    res.status(500).json({ error: "Evolution API proxy error" });
+  }
+});
+
 
 async function ensureLeadsColumns() {
   try {
@@ -6367,53 +6469,44 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
 
     const totalMessages = parseInt(msgRes.rows[0].count || 0);
 
-    // Chart Data (Last 7 Days)
+    // Chart Data (Last 7 Days) — using EXTRACT(DOW) to avoid PostgreSQL locale issues with TO_CHAR('Dy')
     const chartRes = await pool.query(
       `
             SELECT 
-                TO_CHAR(cm.created_at, 'Dy') as day_name,
+                EXTRACT(DOW FROM cm.created_at)::int as dow,
+                DATE(cm.created_at) as msg_date,
                 COUNT(*) as volume
             FROM chat_messages cm
             JOIN agents a ON cm.agent_id = a.id
             WHERE a.organization_id = $1
             AND cm.created_at >= NOW() - INTERVAL '7 days'
-            GROUP BY 1, DATE(cm.created_at)
-            ORDER BY DATE(cm.created_at) ASC
+            GROUP BY 2, 1
+            ORDER BY 2 ASC
         `,
       [orgId],
     );
 
-    const dayMap = {
-      Mon: "Seg",
-      Tue: "Ter",
-      Wed: "Qua",
-      Thu: "Qui",
-      Fri: "Sex",
-      Sat: "Sab",
-      Sun: "Dom",
-    };
+    const ptDayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
 
-    // Zero-fill for the last 7 days
-    const last7Days = [];
+    // Build statsMap keyed by date string "YYYY-MM-DD" => volume
+    const statsMap = {};
+    chartRes.rows.forEach((r) => {
+      const dateKey = new Date(r.msg_date).toISOString().slice(0, 10);
+      statsMap[dateKey] = (statsMap[dateKey] || 0) + parseInt(r.volume);
+    });
 
+    // Zero-fill last 7 days with locale-independent date keys
+    const chartData = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      // d.toDateString() returns "Fri Feb 17 2026", split by space gets "Fri"
-      // This matches Postgres TO_CHAR(..., 'Dy') output in English locale
-      const dayEng = d.toDateString().split(" ")[0];
-      last7Days.push(dayEng);
+      const dateKey = d.toISOString().slice(0, 10);
+      const dow = d.getDay(); // 0=Sun..6=Sat
+      chartData.push({
+        name: ptDayNames[dow],
+        volume: statsMap[dateKey] || 0,
+      });
     }
-
-    const statsMap = {};
-    chartRes.rows.forEach((r) => {
-      statsMap[r.day_name.trim()] = parseInt(r.volume);
-    });
-
-    const chartData = last7Days.map((dayEng) => ({
-      name: dayMap[dayEng] || dayEng,
-      volume: statsMap[dayEng] || 0,
-    }));
 
     res.json({
       pipeline: {
