@@ -6482,15 +6482,16 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
       statsMap[dateKey] = (statsMap[dateKey] || 0) + parseInt(r.volume);
     });
 
-    // Zero-fill last 7 days with locale-independent date keys
+    // Zero-fill last 7 days with dd/MM labels
     const chartData = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateKey = d.toISOString().slice(0, 10);
-      const dow = d.getDay(); // 0=Sun..6=Sat
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
       chartData.push({
-        name: ptDayNames[dow],
+        name: `${dd}/${mm}`,
         volume: statsMap[dateKey] || 0,
       });
     }
