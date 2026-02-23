@@ -8767,12 +8767,10 @@ app.post(
       }
 
       let imageUrl = null;
-      if (imageFile) {
-        // In a real app, upload to S3/Cloudinary. Here we serve locally.
-        // Assuming we have a static serve or just returning the path relative to a base URL.
-        // For now, let's store the filename and assume an /uploads route exists or we serve it.
-        // Actually, server.js needs to serve uploads.
-        imageUrl = `/uploads/${imageFile.filename}`;
+      if (imageFile && imageFile.buffer) {
+        // Convert to data URL for serverless compatibility (no filesystem)
+        const base64 = imageFile.buffer.toString("base64");
+        imageUrl = `data:${imageFile.mimetype};base64,${base64}`;
       }
 
       const newSeq = await pool.query(
@@ -8834,8 +8832,9 @@ app.put(
       }
 
       let imageUrl = currentSeq.rows[0].image_url;
-      if (imageFile) {
-        imageUrl = `/uploads/${imageFile.filename}`;
+      if (imageFile && imageFile.buffer) {
+        const base64 = imageFile.buffer.toString("base64");
+        imageUrl = `data:${imageFile.mimetype};base64,${base64}`;
       }
 
       const updatedSeq = await pool.query(
