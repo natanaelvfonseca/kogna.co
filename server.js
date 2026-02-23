@@ -19,24 +19,11 @@ import rateLimit from "express-rate-limit";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure Multer
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = "uploads/";
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname),
-    );
-  },
+// Configure Multer — use memoryStorage for Vercel (read-only filesystem)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
-const upload = multer({ storage: storage });
 
 console.log("Starting server.js...");
 
@@ -3069,11 +3056,11 @@ app.post(
 
       const currentFiles = agentCheck.rows[0].training_files || [];
 
-      // Process uploaded files
+      // Process uploaded files (in-memory via memoryStorage)
       const newFiles = req.files.map((file) => ({
         originalName: file.originalname,
-        filename: file.filename,
-        path: file.path,
+        filename: Date.now() + "-" + file.originalname,
+        content: file.buffer.toString("base64"),
         mimeType: file.mimetype,
         size: file.size,
         uploadedAt: new Date().toISOString(),
