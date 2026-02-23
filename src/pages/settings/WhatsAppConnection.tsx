@@ -186,6 +186,16 @@ export function WhatsAppConnection() {
         }
     };
 
+    const handleReconnect = (instanceName: string) => {
+        // Extract the label from instance name (format: email_label)
+        const label = instanceName.includes('_') ? instanceName.split('_').slice(1).join('_') : instanceName;
+        setNewLabel(label);
+        setShowNewConnectionModal(true);
+        setConnectStatus('idle');
+        setConnectError(null);
+        setQrCode(null);
+    };
+
     // --- RENDER ---
 
     if (loading) {
@@ -247,7 +257,16 @@ export function WhatsAppConnection() {
                             ID: {instance.instance_name}
                         </p>
 
-                        <div className="mt-auto pt-4 border-t border-border/50">
+                        <div className="mt-auto pt-4 border-t border-border/50 space-y-2">
+                            {instance.status !== 'CONNECTED' && (
+                                <button
+                                    onClick={() => handleReconnect(instance.instance_name)}
+                                    className="w-full flex items-center justify-center gap-2 text-green-500 hover:text-green-400 hover:bg-green-500/10 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                                >
+                                    <RefreshCw size={16} />
+                                    Reconectar
+                                </button>
+                            )}
                             <button
                                 onClick={() => handleDelete(instance.id, instance.instance_name)}
                                 className="w-full flex items-center justify-center gap-2 text-red-400 hover:text-red-500 hover:bg-red-500/10 py-2.5 rounded-lg text-sm font-medium transition-colors"
