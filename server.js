@@ -1155,8 +1155,8 @@ app.post(
 
       const newFiles = req.files.map((file) => ({
         originalName: file.originalname,
-        filename: file.filename,
-        path: file.path,
+        filename: Date.now() + "-" + file.originalname,
+        content: file.buffer.toString("base64"),
         mimeType: file.mimetype,
         size: file.size,
         uploadedAt: new Date().toISOString(),
