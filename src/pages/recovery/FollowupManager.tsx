@@ -19,6 +19,7 @@ export function FollowupManager() {
     const [newMessage, setNewMessage] = useState('');
     const [newImage, setNewImage] = useState<File | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
 
 
@@ -50,6 +51,7 @@ export function FollowupManager() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+        setSuccess(null);
 
         const formData = new FormData();
         formData.append('delayDays', newDelay.toString());
@@ -78,6 +80,8 @@ export function FollowupManager() {
                 setNewDelay(1);
                 setNewImage(null);
                 setEditingId(null);
+                setSuccess(editingId ? 'Sequência atualizada com sucesso!' : 'Mensagem de recuperação configurada com sucesso! ✅');
+                setTimeout(() => setSuccess(null), 4000);
                 fetchSequences();
             } else {
                 const errText = await res.text();
@@ -145,6 +149,12 @@ export function FollowupManager() {
                 <div className="bg-destructive/10 border border-destructive/20 text-destructive p-3 rounded-md flex items-center gap-2">
                     <AlertCircle className="h-4 w-4" />
                     <span className="text-sm">{error}</span>
+                </div>
+            )}
+
+            {success && (
+                <div className="bg-green-500/10 border border-green-500/20 text-green-600 p-3 rounded-md flex items-center gap-2 animate-in fade-in duration-300">
+                    <span className="text-sm font-medium">{success}</span>
                 </div>
             )}
 
