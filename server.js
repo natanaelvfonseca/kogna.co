@@ -7703,8 +7703,10 @@ async function processAIResponse(
       `[AI] Processing buffered messages for ${remoteJid}. Input count: ${inputMessages.length}`,
     );
 
-    // Check if any input was audio (to respond with audio)
-    const respondWithAudio = inputMessages.some((msg) => msg.isAudio);
+    // Check if any input was audio OR if user is asking AI to send audio
+    const audioTriggerKeywords = ['manda um audio', 'manda audio', 'me manda um audio', 'envia um audio', 'envia audio', 'send audio', 'me manda audio', 'pode mandar um audio', 'fala por audio', 'responde em audio', 'responde por audio'];
+    const userTextLower = inputMessages.map(m => (m.text || m.content || '')).join(' ').toLowerCase();
+    const respondWithAudio = inputMessages.some((msg) => msg.isAudio) || audioTriggerKeywords.some(kw => userTextLower.includes(kw));
 
     // 1.5 Fetch Knowledge Base context
     const knowledgeBase = await getAgentKnowledge(agent.training_files);
@@ -8309,7 +8311,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
 
         // Attempt 1: sendWhatsAppAudio with raw base64
         let sendResponse = await fetch(
-          `${evolutionApiUrl} /message/sendWhatsAppAudio / ${instanceName} `,
+          `${evolutionApiUrl}/message/sendWhatsAppAudio/${instanceName}`,
           {
             method: "POST",
             headers: {
@@ -8328,10 +8330,10 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
         // If raw base64 fails, try data URI format
         if (!sendResponse.ok) {
           const err1 = await sendResponse.text();
-          log(`[TTS] Attempt 1(raw base64) failed: ${err1} `);
+          log(`[TTS] Attempt 1 (raw base64) failed: ${err1}`);
 
           sendResponse = await fetch(
-            `${evolutionApiUrl} /message/sendWhatsAppAudio / ${instanceName} `,
+            `${evolutionApiUrl}/message/sendWhatsAppAudio/${instanceName}`,
             {
               method: "POST",
               headers: {
@@ -8340,7 +8342,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
               },
               body: JSON.stringify({
                 number: remoteJid,
-                audio: `data: audio / mpeg; base64, ${audioBase64} `,
+                audio: `data:audio/mpeg;base64,${audioBase64}`,
                 encoding: true,
               }),
             },
@@ -8350,10 +8352,10 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
         // If both fail, try sendMedia endpoint as final attempt
         if (!sendResponse.ok) {
           const err2 = await sendResponse.text();
-          log(`[TTS] Attempt 2(data URI) failed: ${err2} `);
+          log(`[TTS] Attempt 2 (data URI) failed: ${err2}`);
 
           sendResponse = await fetch(
-            `${evolutionApiUrl} /message/sendMedia / ${instanceName} `,
+            `${evolutionApiUrl}/message/sendMedia/${instanceName}`,
             {
               method: "POST",
               headers: {
@@ -8363,7 +8365,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
               body: JSON.stringify({
                 number: remoteJid,
                 mediatype: "audio",
-                media: `data: audio / mpeg; base64, ${audioBase64} `,
+                media: `data:audio/mpeg;base64,${audioBase64}`,
                 fileName: "audio.mp3",
               }),
             },
