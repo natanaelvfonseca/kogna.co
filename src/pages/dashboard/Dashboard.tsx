@@ -89,16 +89,18 @@ export function Dashboard() {
         }).format(value);
     };
 
-    // Use mock data if loading or no data
-    const chartData = metrics?.ai.chart.length ? metrics.ai.chart : [
-        { name: 'Seg', volume: 0 },
-        { name: 'Ter', volume: 0 },
-        { name: 'Qua', volume: 0 },
-        { name: 'Qui', volume: 0 },
-        { name: 'Sex', volume: 0 },
-        { name: 'Sab', volume: 0 },
-        { name: 'Dom', volume: 0 },
+    // Use real data if available, otherwise show a placeholder wave so the chart is always visible
+    const hasRealData = metrics?.ai.chart && metrics.ai.chart.length > 0 && metrics.ai.chart.some(d => d.volume > 0);
+    const chartData = hasRealData ? metrics!.ai.chart : [
+        { name: 'Seg', volume: 3 },
+        { name: 'Ter', volume: 7 },
+        { name: 'Qua', volume: 5 },
+        { name: 'Qui', volume: 10 },
+        { name: 'Sex', volume: 6 },
+        { name: 'Sab', volume: 4 },
+        { name: 'Dom', volume: 2 },
     ];
+    const isPlaceholderData = !hasRealData;
 
     return (
         <div className="space-y-6">
@@ -207,11 +209,16 @@ export function Dashboard() {
                         </button> */}
                     </div>
                     <div className="h-[320px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                        {isPlaceholderData && (
+                            <p className="text-xs text-text-muted text-center pt-2 pb-0 italic opacity-60">
+                                Nenhuma mensagem nos últimos 7 dias — gráfico ilustrativo
+                            </p>
+                        )}
+                        <ResponsiveContainer width="100%" height={isPlaceholderData ? "92%" : "100%"}>
                             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#F5793B" stopOpacity={0.4} />
+                                        <stop offset="5%" stopColor="#F5793B" stopOpacity={isPlaceholderData ? 0.15 : 0.4} />
                                         <stop offset="95%" stopColor="#F5793B" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
@@ -236,15 +243,17 @@ export function Dashboard() {
                                     contentStyle={{ backgroundColor: '#18181B', borderColor: '#27272A', borderRadius: '12px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }}
                                     itemStyle={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}
                                     cursor={{ stroke: '#F5793B', strokeWidth: 1, strokeDasharray: '5 5' }}
+                                    formatter={(value: any) => isPlaceholderData ? ['—', 'Volume'] : [value, 'Volume']}
                                 />
                                 <Area
                                     type="monotone"
                                     dataKey="volume"
                                     stroke="#F5793B"
-                                    strokeWidth={3}
+                                    strokeWidth={isPlaceholderData ? 1.5 : 3}
+                                    strokeOpacity={isPlaceholderData ? 0.4 : 1}
                                     fillOpacity={1}
                                     fill="url(#colorVolume)"
-                                    activeDot={{ r: 6, strokeWidth: 0, fill: '#fff' }}
+                                    activeDot={isPlaceholderData ? false : { r: 6, strokeWidth: 0, fill: '#fff' }}
                                 />
                             </AreaChart>
                         </ResponsiveContainer>
