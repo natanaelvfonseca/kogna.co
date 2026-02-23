@@ -3224,7 +3224,7 @@ app.get(
 // In production (Vercel), these requests serve the React SPA. This proxy bridges that gap.
 
 // POST /chat/findChats/:instance — proxy to Evolution API
-app.post("/chat/findChats/:instanceName", verifyJWT, async (req, res) => {
+app.post("/chat/findChats/:instanceName", async (req, res) => {
   const { instanceName } = req.params;
   const evolutionUrl = process.env.EVOLUTION_API_URL;
   const evolutionKey = process.env.EVOLUTION_API_KEY;
@@ -3252,7 +3252,7 @@ app.post("/chat/findChats/:instanceName", verifyJWT, async (req, res) => {
 });
 
 // POST /chat/findMessages/:instance — proxy to Evolution API
-app.post("/chat/findMessages/:instanceName", verifyJWT, async (req, res) => {
+app.post("/chat/findMessages/:instanceName", async (req, res) => {
   const { instanceName } = req.params;
   const evolutionUrl = process.env.EVOLUTION_API_URL;
   const evolutionKey = process.env.EVOLUTION_API_KEY;
