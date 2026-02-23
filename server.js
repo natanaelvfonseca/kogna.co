@@ -4902,8 +4902,54 @@ app.post("/api/evolution/webhook", async (req, res) => {
       }
     } else if (messageType === "audioMessage") {
       isAudio = true;
-      content = "[AUDIO]";
-      // Similar to image, would need media handling.
+      content = "[AUDIO]"; // Default fallback
+
+      try {
+        const evolutionApiUrl = process.env.EVOLUTION_API_URL || "https://evo.kogna.co";
+        const evolutionApiKey = process.env.EVOLUTION_API_KEY || "";
+
+        // Fetch the audio media from Evolution API
+        const mediaRes = await fetch(
+          `${evolutionApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: evolutionApiKey },
+            body: JSON.stringify({ message: data.message, convertToMp4: false }),
+          }
+        );
+
+        if (mediaRes.ok) {
+          const mediaData = await mediaRes.json();
+          const base64Audio = mediaData.base64;
+
+          if (base64Audio) {
+            const tempDir = path.join(__dirname, "temp", "audio");
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+            const audioPath = path.join(tempDir, `recv_${Date.now()}.ogg`);
+            fs.writeFileSync(audioPath, Buffer.from(base64Audio, "base64"));
+
+            try {
+              const transcription = await openai.audio.transcriptions.create({
+                file: fs.createReadStream(audioPath),
+                model: "whisper-1",
+                language: "pt",
+              });
+              content = transcription.text || "[AUDIO]";
+              log(`[WHISPER] Transcribed audio from ${remoteJid}: "${content.substring(0, 80)}"`);
+            } catch (whisperErr) {
+              log(`[WHISPER] Transcription failed: ${whisperErr.message}. Using [AUDIO] placeholder.`);
+            } finally {
+              if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+            }
+          }
+        } else {
+          const errText = await mediaRes.text();
+          log(`[WHISPER] Failed to fetch audio from Evolution: ${mediaRes.status} - ${errText}`);
+        }
+      } catch (audioErr) {
+        log(`[WHISPER] Audio handling error: ${audioErr.message}`);
+      }
     }
 
     if (!content && !isAudio) {
