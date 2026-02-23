@@ -6351,6 +6351,7 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
   try {
     log("[DASHBOARD] Fetching metrics...");
     const userId = req.userId;
+    const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 365);
 
     if (!userId) {
       log("[DASHBOARD] 401 Unauthorized - No valid userId");
@@ -6438,9 +6439,9 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
             FROM chat_messages cm
             JOIN agents a ON cm.agent_id = a.id
             WHERE a.organization_id = $1 
-            AND cm.created_at > NOW() - INTERVAL '24 hours'
+            AND cm.created_at > NOW() - INTERVAL '1 day' * $2
         `,
-      [orgId],
+      [orgId, days],
     );
 
     // Total Messages
@@ -6466,11 +6467,11 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
             FROM chat_messages cm
             JOIN agents a ON cm.agent_id = a.id
             WHERE a.organization_id = $1
-            AND cm.created_at >= NOW() - INTERVAL '7 days'
+            AND cm.created_at >= NOW() - INTERVAL '1 day' * $2
             GROUP BY 2, 1
             ORDER BY 2 ASC
         `,
-      [orgId],
+      [orgId, days],
     );
 
     const ptDayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"];
@@ -6484,7 +6485,7 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
 
     // Zero-fill last 7 days with dd/MM labels
     const chartData = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateKey = d.toISOString().slice(0, 10);

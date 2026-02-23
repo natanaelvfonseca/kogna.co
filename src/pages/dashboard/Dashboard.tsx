@@ -39,6 +39,7 @@ export function Dashboard() {
     const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [selectedDays, setSelectedDays] = useState(7);
 
     useEffect(() => {
         if (!user) return;
@@ -53,7 +54,7 @@ export function Dashboard() {
                     return;
                 }
 
-                const res = await fetch('/api/dashboard/metrics', {
+                const res = await fetch(`/api/dashboard/metrics?days=${selectedDays}`, {
                     headers: {
                         'Authorization': `Bearer ${authToken}`
                     }
@@ -79,7 +80,7 @@ export function Dashboard() {
         };
 
         fetchMetrics();
-    }, [user, authToken]);
+    }, [user, authToken, selectedDays]);
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat('pt-BR', {
@@ -119,6 +120,16 @@ export function Dashboard() {
                         </span>
                     </p>
                 </div>
+                <select
+                    value={selectedDays}
+                    onChange={(e) => setSelectedDays(Number(e.target.value))}
+                    className="bg-surface border border-border/50 text-text-primary text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 cursor-pointer font-medium shadow-sm hover:border-primary/30 transition-colors"
+                >
+                    <option value={7}>Últimos 7 dias</option>
+                    <option value={15}>Últimos 15 dias</option>
+                    <option value={30}>Últimos 30 dias</option>
+                    <option value={90}>Últimos 90 dias</option>
+                </select>
                 <div className="text-sm text-text-secondary">
                     Última atualização: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </div>
@@ -128,7 +139,8 @@ export function Dashboard() {
                 <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-xl flex items-center gap-2">
                     <span className="font-semibold">Erro:</span> {error}
                 </div>
-            )}
+            )
+            }
 
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -312,6 +324,6 @@ export function Dashboard() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
