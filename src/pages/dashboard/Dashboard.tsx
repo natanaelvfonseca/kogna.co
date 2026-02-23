@@ -130,9 +130,6 @@ export function Dashboard() {
                     <option value={30}>Últimos 30 dias</option>
                     <option value={90}>Últimos 90 dias</option>
                 </select>
-                <div className="text-sm text-text-secondary">
-                    Última atualização: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </div>
             </div>
 
             {error && (
@@ -324,6 +321,11 @@ export function Dashboard() {
                     </div>
                 </div>
             </div>
-        </div >
+
+            {/* Last updated timestamp */}
+            <div className="text-center text-xs text-text-secondary/60 pb-2">
+                Última atualização: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+        </div>
     );
 }
