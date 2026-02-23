@@ -1980,6 +1980,75 @@ app.get("/api/onboarding/status", verifyJWT, async (req, res) => {
 
 // ==================== ADMIN DASHBOARD API ====================
 
+// Admin: Fix orgs that have WhatsApp instances but no agents (retroactive fix)
+app.post("/api/admin/fix-missing-agents", verifyJWT, verifyAdmin, async (req, res) => {
+  try {
+    // Find all orgs that have WhatsApp instances but NO agents
+    const orphanedOrgs = await pool.query(`
+      SELECT DISTINCT wi.organization_id, wi.id as instance_id, wi.instance_name,
+             u.id as user_id, u.email
+      FROM whatsapp_instances wi
+      JOIN users u ON wi.user_id = u.id
+      WHERE wi.organization_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM agents a WHERE a.organization_id = wi.organization_id
+      )
+    `);
+
+    const fixes = [];
+
+    for (const row of orphanedOrgs.rows) {
+      // Get ia_configs for this user
+      const configRes = await pool.query(
+        "SELECT * FROM ia_configs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [row.user_id],
+      );
+      const config = configRes.rows[0];
+
+      const companyName = config?.company_name || "Empresa";
+      const aiName = config?.ai_name || "Assistente";
+      const companyProduct = config?.company_product || "produtos";
+      const targetAudience = config?.target_audience || "clientes";
+      const voiceTone = config?.voice_tone || "profissional";
+
+      const systemPrompt = `Você é um SDR virtual chamado ${aiName}.
+A empresa ${companyName} vende: ${companyProduct}.
+O público-alvo é: ${targetAudience}.
+Tom de voz: ${voiceTone}.
+
+REGRAS:
+1. Faça perguntas de qualificação para entender a necessidade do lead.
+2. Quando o lead estiver qualificado, proponha uma reunião ou demonstração.
+3. Nunca invente informações sobre o produto.
+4. Use linguagem natural e evite parecer um robô.
+5. Responda sempre em português brasileiro.
+6. Mantenha as respostas curtas (máximo 3 parágrafos).`;
+
+      const agentName = aiName || companyName || "Agente IA";
+
+      await pool.query(
+        `INSERT INTO agents (organization_id, name, type, system_prompt, model_config, whatsapp_instance_id, status, created_at) 
+         VALUES ($1, $2, 'whatsapp', $3, $4, $5, 'active', NOW())`,
+        [
+          row.organization_id,
+          agentName,
+          systemPrompt,
+          JSON.stringify({ model: "gpt-4o-mini", temperature: 0.7 }),
+          row.instance_id,
+        ],
+      );
+
+      fixes.push({ email: row.email, orgId: row.organization_id, agentName, instanceName: row.instance_name });
+      log(`[FIX] Created agent "${agentName}" for ${row.email} (org: ${row.organization_id})`);
+    }
+
+    res.json({ success: true, fixed: fixes.length, details: fixes });
+  } catch (err) {
+    log("[ERROR] fix-missing-agents: " + err.toString());
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin: Get Overview Stats (MRR, Revenue Chart)
 app.get("/api/admin/stats", verifyJWT, verifyAdmin, async (req, res) => {
   try {
