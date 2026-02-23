@@ -306,6 +306,8 @@ export function Onboarding() {
     };
 
     // STEP 3: FILE UPLOAD
+    const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB (Vercel serverless limit is 4.5MB)
+
     const handleFileUpload = async () => {
         if (files.length === 0) {
             setStep(4);
@@ -313,28 +315,42 @@ export function Onboarding() {
             return;
         }
 
+        // Validate file sizes before upload
+        const oversized = files.filter(f => f.size > MAX_FILE_SIZE);
+        if (oversized.length > 0) {
+            const names = oversized.map(f => f.name).join(', ');
+            setError(`Arquivo(s) muito grande(s): ${names}. Máximo 4MB por arquivo.`);
+            return;
+        }
+
         playSound('click');
         setLoading(true);
         setError(null);
 
-        const uploadData = new FormData();
-        files.forEach(file => { uploadData.append('files', file); });
-
+        // Upload files one by one to stay within Vercel body size limit
         try {
-            const headers: HeadersInit = { 'Authorization': `Bearer ${token}` };
-            const res = await fetch(`${API_URL}/ia-configs/upload`, {
-                method: 'POST',
-                headers: headers,
-                body: uploadData
-            });
+            for (const file of files) {
+                const uploadData = new FormData();
+                uploadData.append('files', file);
 
-            if (!res.ok) throw new Error('Falha no upload.');
+                const headers: HeadersInit = { 'Authorization': `Bearer ${token}` };
+                const res = await fetch(`${API_URL}/ia-configs/upload`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: uploadData
+                });
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `Falha no upload de ${file.name}`);
+                }
+            }
 
             playSound('level-up');
             setStep(4);
             setPotential(95);
-        } catch (err) {
-            setError('Erro ao enviar arquivos. Tente novamente.');
+        } catch (err: any) {
+            setError(err.message || 'Erro ao enviar arquivos. Tente novamente.');
         } finally {
             setLoading(false);
         }
