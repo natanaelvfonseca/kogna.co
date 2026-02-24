@@ -26,6 +26,7 @@ import { Clients } from './pages/clients/Clients';
 import { Checkout } from './pages/checkout/Checkout';
 import { CheckoutSuccess } from './pages/checkout/CheckoutSuccess';
 import { FollowupManager } from './pages/recovery/FollowupManager';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 import { ReferralRedirect } from './pages/partners/ReferralRedirect';
 
@@ -89,6 +90,7 @@ function App() {
                                 <Route path="*" element={<div className="text-white p-8">Página em construção</div>} />
                             </Route>
                         </Routes>
+                        <SpeedInsights />
                     </NotificationProvider>
                 </AuthProvider>
             </BrowserRouter>
