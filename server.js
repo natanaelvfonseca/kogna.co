@@ -7986,11 +7986,11 @@ async function sendTextResponse(
         `[AI] Response part ${index + 1}/${responseParts.length} sent to ${remoteJid}`,
       );
       const deductRes = await pool.query(
-        "UPDATE users SET koins_balance = koins_balance - 5 WHERE id = $1 RETURNING koins_balance",
+        "UPDATE users SET koins_balance = koins_balance - 2 WHERE id = $1 RETURNING koins_balance",
         [user.id],
       );
       log(
-        `[KOINS] Deducted 5 koins for part ${index + 1}. New balance: ${deductRes.rows[0].koins_balance}`,
+        `[KOINS] Deducted 2 koins for part ${index + 1}. New balance: ${deductRes.rows[0].koins_balance}`,
       );
     } else {
       log(`[AI] Failed to send part ${index + 1}: ${sendResponse.statusText}`);
