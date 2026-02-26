@@ -1770,67 +1770,8 @@ app.post("/api/onboarding/complete", verifyJWT, async (req, res) => {
 
     const orgId = user.organization_id;
 
-    // Auto-create agent if none exists for this org
-    if (orgId) {
-      const existingAgent = await pool.query(
-        "SELECT id FROM agents WHERE organization_id = $1 LIMIT 1",
-        [orgId],
-      );
-
-      if (existingAgent.rows.length === 0) {
-        // Get ia_configs data for this user
-        const configRes = await pool.query(
-          "SELECT * FROM ia_configs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
-          [userId],
-        );
-        const config = configRes.rows[0];
-
-        // Get the most recent WhatsApp instance for this org
-        const instanceRes = await pool.query(
-          "SELECT id FROM whatsapp_instances WHERE organization_id = $1 ORDER BY created_at DESC LIMIT 1",
-          [orgId],
-        );
-        const whatsappInstanceId = instanceRes.rows[0]?.id || null;
-
-        // Build system prompt from config
-        const companyName = config?.company_name || "nossa empresa";
-        const aiName = config?.ai_name || "Assistente";
-        const companyProduct = config?.company_product || "nossos produtos";
-        const targetAudience = config?.target_audience || "clientes";
-        const voiceTone = config?.voice_tone || "profissional";
-
-        const systemPrompt = `Você é um SDR (Sales Development Representative) virtual chamado ${aiName}.
-A empresa ${companyName} vende: ${companyProduct}.
-O público-alvo é: ${targetAudience}.
-
-Tom de voz: ${voiceTone}.
-
-REGRAS DE COMPORTAMENTO:
-1. Faça perguntas de qualificação para entender a necessidade do lead.
-2. Quando o lead estiver qualificado, proponha uma reunião ou demonstração.
-3. Nunca invente informações sobre o produto.
-4. Use linguagem natural e evite parecer um robô.
-5. Responda sempre em português brasileiro.
-6. Mantenha as respostas curtas e objetivas (máximo 3 parágrafos).
-7. Se o lead não tiver interesse, agradeça e encerre educadamente.`;
-
-        const agentName = aiName || companyName || "Agente IA";
-
-        await pool.query(
-          `INSERT INTO agents (organization_id, name, type, system_prompt, model_config, whatsapp_instance_id, status, created_at) 
-           VALUES ($1, $2, 'whatsapp', $3, $4, $5, 'active', NOW())`,
-          [
-            orgId,
-            agentName,
-            systemPrompt,
-            JSON.stringify({ model: "gpt-4o-mini", temperature: 0.7 }),
-            whatsappInstanceId,
-          ],
-        );
-
-        log(`[ONBOARDING] Auto-created agent "${agentName}" for org ${orgId} linked to instance ${whatsappInstanceId}`);
-      }
-    }
+    // NOTE: Agent creation is handled by POST /api/onboarding/create-agent earlier in the flow.
+    // We intentionally do NOT auto-create a fallback agent here to avoid duplicates.
 
     // Update status and add reward (100 Koins)
     await pool.query(
