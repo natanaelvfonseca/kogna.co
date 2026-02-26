@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { History, Sparkles, Zap, Gift, Crown, Package, Gem, AlertTriangle } from 'lucide-react';
+import { History, Sparkles, Zap, Gift, Crown, Package, Gem, AlertTriangle, MessagesSquare, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface BillingHistoryItem {
@@ -377,6 +377,71 @@ export function Billing() {
                     <p className="text-sm text-foreground font-medium uppercase tracking-tight">
                         Cada cliente não atendido é uma venda perdida. Garanta energia suficiente para sua IA.
                     </p>
+                </div>
+            </div>
+
+            {/* EXTRAS SECTION */}
+            <div className="space-y-6">
+                <div className="flex flex-col gap-1 text-center md:text-left">
+                    <h2 className="text-2xl font-bold text-foreground flex items-center justify-center md:justify-start gap-2">
+                        <Package className="text-primary" size={24} />
+                        Conexões e Extras
+                    </h2>
+                    <p className="text-muted-foreground">Potencialize sua operação com recursos adicionais e estabilidade.</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                    <div className="bg-surface border border-border rounded-3xl p-6 md:p-8 flex flex-col lg:flex-row items-center gap-8 shadow-sm hover:shadow-xl transition-all duration-500 group border-emerald-500/10 bg-gradient-to-br from-surface via-surface to-emerald-500/5 relative overflow-hidden">
+                        {/* Background Decoration */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl -mr-16 -mt-16" />
+
+                        <div className="w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform duration-700 shadow-inner ring-1 ring-emerald-500/20">
+                            <MessagesSquare size={64} className="fill-emerald-500/20" />
+                        </div>
+
+                        <div className="flex-1 space-y-4 text-center lg:text-left">
+                            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3">
+                                <h3 className="text-2xl font-black text-foreground tracking-tight">Conexão WhatsApp Profissional</h3>
+                                <span className="bg-emerald-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg shadow-emerald-500/20 uppercase tracking-widest">ASSINATURA RECORRENTE</span>
+                            </div>
+
+                            <p className="text-muted-foreground leading-relaxed max-w-2xl mx-auto lg:mx-0">
+                                Garanta 100% de disponibilidade no atendimento! A conexão profissional permite o uso de API estável para disparos ilimitados sem risco de interrupção técnica do SaaS. Imprescindível para escalas acima de 100 clientes/dia.
+                            </p>
+
+                            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 text-xs font-bold text-emerald-500/80 uppercase tracking-tighter">
+                                <div className="flex items-center gap-2">
+                                    <ShieldCheck size={16} />
+                                    <span>Conexão Blindada</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Zap size={16} className="fill-emerald-500" />
+                                    <span>API de Alta Velocidade</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Sparkles size={16} />
+                                    <span>Suporte Prioritário</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col items-center lg:items-end gap-4 min-w-[200px] w-full lg:w-auto pt-6 lg:pt-0 border-t lg:border-t-0 lg:border-l border-border/50 lg:pl-8">
+                            <div className="text-center lg:text-right">
+                                <div className="flex items-baseline gap-1 justify-center lg:justify-end">
+                                    <span className="text-sm font-bold text-muted-foreground">R$</span>
+                                    <span className="text-5xl font-black text-foreground tabular-nums">9,90</span>
+                                </div>
+                                <span className="text-xs font-bold text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded">Cobrança Mensal</span>
+                            </div>
+                            <button
+                                onClick={() => handleBuyClick('f3b28676-3bdc-4014-9c0c-f3b7cb4131bc')}
+                                className="w-full px-10 py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-lg rounded-2xl transition-all shadow-[0_10px_20px_rgba(16,185,129,0.3)] hover:shadow-emerald-500/40 hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Zap size={20} className="fill-white" />
+                                ATIVAR AGORA
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
