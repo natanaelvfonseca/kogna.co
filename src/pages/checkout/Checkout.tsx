@@ -57,7 +57,7 @@ export function Checkout() {
 
     const bonusAmount = product ? getBonusAmount(productId || product.id) : 0;
 
-    const addLog = (type: DebugLog['type'], message: string, details?: any) => {
+    const addLog = useCallback((type: DebugLog['type'], message: string, details?: any) => {
         const newLog = {
             timestamp: new Date().toLocaleTimeString(),
             type,
@@ -65,8 +65,7 @@ export function Checkout() {
             details
         };
         setLogs(prev => [newLog, ...prev]);
-
-    };
+    }, []);
 
     // PIX state
     const [pixQrCode, setPixQrCode] = useState<string | null>(null);
@@ -378,42 +377,63 @@ export function Checkout() {
         }
     }, [product, user, docNumber]);
 
-    // Polling for PIX payment status
+    // Ref to hold the interval so it persists across renders
+    const pollingIntervalRef = useRef<any>(null);
+
+    // Polling for PIX payment status — only (re)starts when payment ID or status changes
     useEffect(() => {
-        let interval: any;
-
-        if (paymentStatus === 'pending' && paymentResult?.id) {
-            addLog('info', `Iniciando monitoramento do pagamento: ${paymentResult.id}`);
-
-            interval = setInterval(async () => {
-                try {
-                    const response = await fetch(`${apiBase}/api/payments/verify/${paymentResult.id}`, {
-                        headers: {
-                            'Authorization': `Bearer ${localStorage.getItem('kogna_token')}`
-                        }
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        addLog('info', `Status do pagamento ${paymentResult.id}: ${data.status}`);
-                        if (data.status === 'approved') {
-                            addLog('success', 'Pagamento aprovado via polling!');
-                            setPaymentStatus('approved');
-                            clearInterval(interval);
-                        }
-                    } else {
-                        addLog('error', `Erro no polling: ${response.status}`);
-                    }
-                } catch (err) {
-                    console.error('[CHECKOUT] Polling error:', err);
-                }
-            }, 5000); // Check every 5 seconds
+        // Clean up any existing interval
+        if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
         }
 
+        if (paymentStatus !== 'pending' || !paymentResult?.id) return;
+
+        const paymentId = paymentResult.id;
+        console.log(`[CHECKOUT] Starting polling for payment: ${paymentId}`);
+
+        pollingIntervalRef.current = setInterval(async () => {
+            try {
+                const response = await fetch(`/api/payments/verify/${paymentId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('kogna_token')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log(`[CHECKOUT] Poll result for ${paymentId}: ${data.status}`);
+                    if (data.status === 'approved') {
+                        clearInterval(pollingIntervalRef.current);
+                        pollingIntervalRef.current = null;
+                        setPaymentStatus('approved');
+                    }
+                } else {
+                    console.error(`[CHECKOUT] Polling HTTP error: ${response.status}`);
+                }
+            } catch (err) {
+                console.error('[CHECKOUT] Polling fetch error:', err);
+            }
+        }, 5000);
+
+        // Stop polling after 15 minutes (180 intervals × 5s)
+        const watchdogTimeout = setTimeout(() => {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+                console.log('[CHECKOUT] Polling stopped: 15 minute timeout reached');
+            }
+        }, 15 * 60 * 1000);
+
         return () => {
-            if (interval) clearInterval(interval);
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+            clearTimeout(watchdogTimeout);
         };
-    }, [paymentStatus, paymentResult, addLog]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paymentStatus, paymentResult?.id]);
+
 
     const copyPixCode = () => {
         if (pixCopyPaste) {
