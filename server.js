@@ -155,6 +155,29 @@ const initPool = async () => {
 
 initPool();
 
+// Ensure the message_buffer table exists (DB-based debounce for serverless)
+const ensureMessageBuffer = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS message_buffer (
+        id BIGSERIAL PRIMARY KEY,
+        remote_jid TEXT NOT NULL,
+        agent_id UUID NOT NULL,
+        instance_name TEXT NOT NULL,
+        content TEXT,
+        image_url TEXT,
+        is_audio BOOLEAN DEFAULT false,
+        received_at TIMESTAMPTZ DEFAULT NOW(),
+        processed BOOLEAN DEFAULT false
+      )
+    `);
+    log('[BUFFER] message_buffer table ready');
+  } catch (e) {
+    log('[BUFFER] Error ensuring message_buffer table: ' + e.message);
+  }
+};
+setTimeout(ensureMessageBuffer, 3000); // run after DB connection is established
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: "50mb" })); // Increased limit for base64 image uploads
@@ -4219,25 +4242,69 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
         ],
       );
 
-      // --- PROCESS AI RESPONSE DIRECTLY ---
-      // Note: We no longer use setTimeout/in-memory buffering because Vercel serverless
-      // functions are destroyed immediately after the response is sent.
-      // The in-memory Map and setTimeout timer were lost on every request, causing the
-      // AI to never respond when the browser tab was closed.
-      // Fix: await processAIResponse() synchronously BEFORE sending the response.
-      const inputMessages = [
-        {
-          role: "user",
-          content: finalUserText,
-          imageUrl: imageUrl,
-          isAudio: isAudioInput,
-        },
-      ];
+      // --- DB-BACKED MESSAGE BUFFER (10-second debounce for serverless) ---
+      // Save this message to the buffer table
+      const bufferRes = await pool.query(
+        `INSERT INTO message_buffer (remote_jid, agent_id, instance_name, content, image_url, is_audio)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [remoteJid, agent.id, instanceName, finalUserText || null, imageUrl || null, isAudioInput]
+      );
+      const bufferId = BigInt(bufferRes.rows[0].id);
 
-      // Process synchronously within this serverless function's lifetime
+      // Wait 10 seconds (debounce window)
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      // Check if this is still the LATEST unprocessed message for this contact
+      // If a newer message arrived in the meantime, skip — that message's handler will process all
+      const latestCheck = await pool.query(
+        `SELECT id FROM message_buffer
+         WHERE remote_jid = $1 AND agent_id = $2 AND processed = false
+         ORDER BY received_at DESC LIMIT 1`,
+        [remoteJid, agent.id]
+      );
+
+      const latestId = latestCheck.rows[0]?.id ? BigInt(latestCheck.rows[0].id) : null;
+      if (!latestId || latestId !== bufferId) {
+        // A newer message arrived — its handler will process everything
+        log(`[BUFFER] Message ${bufferId} skipped — newer message ${latestId} will handle the batch.`);
+        return res.json({ success: true, status: 'waiting_for_batch' });
+      }
+
+      // We are the latest message — collect all buffered messages for this contact
+      const allBuffered = await pool.query(
+        `SELECT * FROM message_buffer
+         WHERE remote_jid = $1 AND agent_id = $2 AND processed = false
+         ORDER BY received_at ASC`,
+        [remoteJid, agent.id]
+      );
+
+      // Mark all as processed (prevent double-processing)
+      await pool.query(
+        `UPDATE message_buffer SET processed = true
+         WHERE remote_jid = $1 AND agent_id = $2 AND processed = false`,
+        [remoteJid, agent.id]
+      );
+
+      // Clean up old processed entries (housekeeping)
+      pool.query(`DELETE FROM message_buffer WHERE processed = true AND received_at < NOW() - INTERVAL '2 hours'`)
+        .catch(e => log('[BUFFER] Cleanup error: ' + e.message));
+
+      // Build combined input for AI (all messages in this batch)
+      const inputMessages = allBuffered.rows.map(m => ({
+        role: 'user',
+        content: m.content || '',
+        imageUrl: m.image_url || null,
+        isAudio: m.is_audio || false,
+      }));
+
+      log(`[BUFFER] Processing batch of ${inputMessages.length} message(s) for ${remoteJid}`);
+
+      // Process all buffered messages together in one AI call
       await processAIResponse(agent, remoteJid, instanceName, inputMessages);
 
       return res.json({ success: true });
+      // --- END DB-BACKED MESSAGE BUFFER ---
+
     }
 
     res.json({ success: true });
