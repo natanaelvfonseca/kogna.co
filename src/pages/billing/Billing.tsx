@@ -199,7 +199,7 @@ export function Billing() {
 
     const koinPackages = [
         {
-            id: 'b0c900eb-7ec1-47b8-92e8-206e1095d7bb',
+            id: '545d107d-abc8-4281-96bf-ccf8c294aa32',
             name: '🔹 Trial',
             amount: 1000,
             price: 25,
