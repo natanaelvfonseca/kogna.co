@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { History, Sparkles, Check, Zap, Gift, Crown, Package, Gem, AlertTriangle } from 'lucide-react';
+import { History, Sparkles, Zap, Gift, Crown, Package, Gem, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 interface BillingHistoryItem {
