@@ -7253,13 +7253,19 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
     log(`[MP-IPN] Received notification: ${JSON.stringify(req.body)}`);
     log(`[MP-IPN] Query params: ${JSON.stringify(req.query)}`);
 
-    // Mercado Pago sends different notification types
+    // Mercado Pago sends different notification types: Webhooks (v2) or IPN (legacy)
     const { type, action } = req.body;
-    const dataId = req.body.data?.id || req.query["data.id"];
+    const topic = req.query.topic || req.body.topic;
+    const dataId = req.body.data?.id || req.query["data.id"] || req.query.id;
+
+    log(`[MP-IPN] Details - Type: ${type}, Action: ${action}, Topic: ${topic}, DataID: ${dataId}`);
+
+    // Normalize topic/type
+    const actualType = type || topic;
 
     // We only care about payment notifications
-    if (type !== "payment" || !dataId) {
-      log(`[MP-IPN] Ignoring notification. Type: ${type}, Action: ${action}`);
+    if (actualType !== "payment" || !dataId) {
+      log(`[MP-IPN] Ignoring non-payment notification. Type/Topic: ${actualType}`);
       return res.status(200).send("OK");
     }
 
@@ -7490,10 +7496,11 @@ app.get("/api/payments/verify/:paymentId", verifyJWT, async (req, res) => {
 
     const payment = await mpResponse.json();
     log(
-      `[PAYMENT-VERIFY] Payment ${paymentId}: status=${payment.status}, amount=${payment.transaction_amount}, ref=${payment.external_reference}`,
+      `[PAYMENT-VERIFY] Payment ${paymentId}: status=${payment.status}, amount=${payment.transaction_amount}, ref=${payment.external_reference}, userId=${userId}`,
     );
 
     if (payment.status !== "approved") {
+      log(`[PAYMENT-VERIFY] Payment ${paymentId} is NOT approved yet. Current status: ${payment.status}`);
       return res.json({
         status: payment.status,
         status_detail: payment.status_detail,

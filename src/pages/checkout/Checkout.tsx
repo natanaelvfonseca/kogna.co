@@ -395,11 +395,14 @@ export function Checkout() {
 
                     if (response.ok) {
                         const data = await response.json();
+                        addLog('info', `Status do pagamento ${paymentResult.id}: ${data.status}`);
                         if (data.status === 'approved') {
                             addLog('success', 'Pagamento aprovado via polling!');
                             setPaymentStatus('approved');
                             clearInterval(interval);
                         }
+                    } else {
+                        addLog('error', `Erro no polling: ${response.status}`);
                     }
                 } catch (err) {
                     console.error('[CHECKOUT] Polling error:', err);
