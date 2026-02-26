@@ -528,8 +528,8 @@ export function Checkout() {
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-5xl mx-auto space-y-8">
                 <div className="text-center space-y-2 relative">
-                    <h1 className="text-3xl font-bold text-text-primary">Finalizar Compra</h1>
-                    <p className="text-text-secondary">Preencha os dados de pagamento</p>
+                    <h1 className="text-3xl font-black text-text-primary tracking-tight">🔋 Recarregar Sua IA</h1>
+                    <p className="text-text-secondary">Garanta que nenhum cliente fique sem resposta.</p>
                     <button
                         onClick={() => setDebugOpen(true)}
                         className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-black/80 text-white rounded-full hover:bg-black transition-colors shadow-lg backdrop-blur-sm"
@@ -550,11 +550,23 @@ export function Checkout() {
                             </h2>
                             {product && (
                                 <>
-                                    <div className="py-4 border-b border-gray-100 space-y-2">
-                                        <h3 className="font-bold text-xl text-gray-900">{product.name}</h3>
-                                        {product.description && (
-                                            <p className="text-sm text-gray-500">{product.description}</p>
-                                        )}
+                                    <div className="py-4 border-b border-gray-100 space-y-3">
+                                        <h2 className="font-bold text-base text-gray-700 flex items-center gap-2">
+                                            <span className="text-xl">🧠</span> Sua IA continuará ativa com:
+                                        </h2>
+                                        <ul className="space-y-2">
+                                            {[
+                                                'Atendimento automático 24h',
+                                                'Respostas instantâneas para todos os leads',
+                                                'Agendamentos sem intervenção humana',
+                                                'Padronização profissional garantida'
+                                            ].map(item => (
+                                                <li key={item} className="flex items-center gap-2 text-sm text-gray-700">
+                                                    <span className="w-4 h-4 rounded-full bg-green-500/10 text-green-600 flex items-center justify-center text-xs font-bold shrink-0">✓</span>
+                                                    {item}
+                                                </li>
+                                            ))}
+                                        </ul>
                                     </div>
                                     <div className="flex justify-between items-center py-4">
                                         <span className="font-medium text-gray-600">Total a pagar</span>
@@ -562,9 +574,12 @@ export function Checkout() {
                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.price)}
                                         </span>
                                     </div>
+                                    <p className="text-xs font-medium text-primary flex items-center gap-1.5 pb-3">
+                                        <span>⚡</span> Créditos liberados imediatamente após a confirmação.
+                                    </p>
                                     <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 p-3 rounded-lg">
                                         <ShieldCheck className="w-4 h-4 text-green-500 shrink-0" />
-                                        <span>Pagamento 100% seguro e criptografado</span>
+                                        <span>🔒 Pagamento 100% seguro e criptografado.</span>
                                     </div>
                                 </>
                             )}
@@ -650,6 +665,7 @@ export function Checkout() {
                                             </div>
                                         )}
                                         {cardErrors.cardNumber && <p className="text-red-500 text-xs mt-1">{cardErrors.cardNumber}</p>}
+                                        <p className="text-xs text-gray-400 mt-1.5">🔒 Seus dados são criptografados e nunca armazenamos informações sensíveis.</p>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
@@ -753,7 +769,7 @@ export function Checkout() {
                                             ) : (
                                                 <>
                                                     <Zap className="w-6 h-6 fill-current relative z-10" />
-                                                    <span className="relative z-10 uppercase tracking-wide">POTENCIALIZAR MINHA EMPRESA</span>
+                                                    <span className="relative z-10 uppercase tracking-wide">⚡ RECARREGAR MINHA IA AGORA</span>
                                                 </>
                                             )}
                                         </button>
@@ -761,7 +777,7 @@ export function Checkout() {
                                         {/* Trust Signals */}
                                         <div className="space-y-3">
                                             <p className="text-center text-sm text-gray-500 font-medium">
-                                                Junte-se a <span className="text-gray-900 font-bold">+500 empresas</span> que já automatizaram suas vendas.
+                                                Mais de <span className="text-gray-900 font-bold">500 empresas</span> mantêm seus atendimentos rodando com a Kogna todos os dias.
                                             </p>
 
                                             <div className="flex items-center justify-center gap-4">
@@ -865,6 +881,16 @@ export function Checkout() {
                         </div>
                     </div>
                 </div>
+
+                {/* Continuity Banner */}
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                    <span className="text-xl mt-0.5">⚠️</span>
+                    <div>
+                        <p className="font-bold text-amber-900 text-sm">Sua IA depende de Koins para continuar atendendo.</p>
+                        <p className="text-amber-700 text-xs mt-0.5">Evite interrupções no seu atendimento.</p>
+                    </div>
+                </div>
+
             </div>
             <DebugModal
                 isOpen={debugOpen}
