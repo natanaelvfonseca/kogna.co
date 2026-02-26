@@ -4569,27 +4569,33 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
         .json({ error: "Acesso negado para remover esta conexão" });
     }
 
-    // 2. Disconnect from Evolution API
+    // 2. Delete from Evolution API (logout + destroy instance)
     const evolutionApiUrl =
       process.env.EVOLUTION_API_URL || "https://evo.kogna.co";
     const evolutionApiKey = process.env.EVOLUTION_API_KEY || "";
 
     try {
-      log(`[DELETE_INSTANCE] Attempting Evolution cleanup for ${instanceName}`);
-      // Try logout first
-      await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
-        method: "DELETE",
-        headers: { apikey: evolutionApiKey },
-      });
-      // Then delete
-      await fetch(`${evolutionApiUrl}/instance/delete/${instanceName}`, {
-        method: "DELETE",
-        headers: { apikey: evolutionApiKey },
-      });
-    } catch (evoErr) {
-      log(
-        `[DELETE_INSTANCE] Evolution API cleanup failed for ${instanceName}: ${evoErr.message}`,
+      log(`[DELETE_INSTANCE] Calling Evolution logout for: ${instanceName}`);
+      const logoutRes = await fetch(
+        `${evolutionApiUrl}/instance/logout/${instanceName}`,
+        { method: "DELETE", headers: { apikey: evolutionApiKey } }
       );
+      const logoutBody = await logoutRes.text().catch(() => "(no body)");
+      log(`[DELETE_INSTANCE] Evolution logout ${instanceName}: ${logoutRes.status} — ${logoutBody}`);
+    } catch (evoErr) {
+      log(`[DELETE_INSTANCE] Evolution logout error for ${instanceName}: ${evoErr.message}`);
+    }
+
+    try {
+      log(`[DELETE_INSTANCE] Calling Evolution delete for: ${instanceName}`);
+      const deleteRes = await fetch(
+        `${evolutionApiUrl}/instance/delete/${instanceName}`,
+        { method: "DELETE", headers: { apikey: evolutionApiKey } }
+      );
+      const deleteBody = await deleteRes.text().catch(() => "(no body)");
+      log(`[DELETE_INSTANCE] Evolution delete ${instanceName}: ${deleteRes.status} — ${deleteBody}`);
+    } catch (evoErr) {
+      log(`[DELETE_INSTANCE] Evolution delete error for ${instanceName}: ${evoErr.message}`);
     }
 
     // 3. Remove from database
