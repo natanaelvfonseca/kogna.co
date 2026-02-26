@@ -7104,12 +7104,17 @@ app.post("/api/payments/process-payment", verifyJWT, async (req, res) => {
 
     // Build webhook URL for IPN notifications
     const appUrl = (process.env.APP_URL || "").trim();
-    const notificationUrl = appUrl ? `${appUrl}/api/payments/mercadopago-ipn` : null;
+    let notificationUrl = null;
+    if (appUrl) {
+      // Mercado Pago requires HTTPS for production webhooks
+      notificationUrl = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+      notificationUrl = `${notificationUrl}/api/payments/mercadopago-ipn`;
+    }
 
     // Ensure external_reference is set to userId for Koins tracking
     const paymentBody = {
       ...req.body,
-      external_reference: userId || req.body.external_reference || "anonymous",
+      external_reference: String(userId || req.body.external_reference || "anonymous"),
       ...(notificationUrl && { notification_url: notificationUrl }),
     };
 
@@ -7316,9 +7321,10 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
     // Get userId from external_reference
     const userId = payment.external_reference;
     if (!userId || userId === "anonymous") {
-      log(`[MP-IPN] No valid user reference for payment ${dataId}.`);
+      log(`[MP-IPN] No valid user reference (external_reference) for payment ${dataId}.`);
       return res.status(200).send("OK");
     }
+    log(`[MP-IPN] Crediting Koins to user: ${userId}`);
 
     // Verify user exists
     const userCheck = await pool.query(
@@ -7381,6 +7387,11 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
       "UPDATE users SET koins_balance = koins_balance + $1 WHERE id = $2 RETURNING koins_balance",
       [koinsToCredit, userId],
     );
+
+    if (updateResult.rows.length === 0) {
+      log(`[MP-IPN] User ${userId} not found in database. Cannot credit Koins.`);
+      return res.status(200).send("OK");
+    }
 
     log(
       `[MP-IPN] ✅ Credited ${koinsToCredit} Koins to user ${userId}. New balance: ${updateResult.rows[0].koins_balance}`,
@@ -7508,9 +7519,9 @@ app.get("/api/payments/verify/:paymentId", verifyJWT, async (req, res) => {
     }
 
     // Verify the payment belongs to this user
-    if (payment.external_reference !== userId) {
+    if (String(payment.external_reference) !== String(userId)) {
       log(
-        `[PAYMENT-VERIFY] User mismatch! Payment ref: ${payment.external_reference}, requesting user: ${userId}`,
+        `[PAYMENT-VERIFY] User mismatch! Payment ref: ${payment.external_reference} (type: ${typeof payment.external_reference}), requesting user: ${userId} (type: ${typeof userId})`,
       );
       return res
         .status(403)
@@ -7592,9 +7603,13 @@ app.get("/api/payments/verify/:paymentId", verifyJWT, async (req, res) => {
       [koinsToCredit, userId],
     );
 
-    log(
-      `[PAYMENT-VERIFY] ✅ Credited ${koinsToCredit} Koins to user ${userId}. New balance: ${updateResult.rows[0].koins_balance}`,
-    );
+    if (updateResult.rows.length > 0) {
+      log(
+        `[PAYMENT-VERIFY] ✅ Credited ${koinsToCredit} Koins to user ${userId}. New balance: ${updateResult.rows[0].koins_balance}`,
+      );
+    } else {
+      log(`[PAYMENT-VERIFY] User ${userId} not found during credit attempt.`);
+    }
 
     // Record in billing history
     try {
