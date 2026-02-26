@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Loader2, CreditCard, QrCode, ShieldCheck, CheckCircle, Copy, AlertCircle, Bug, Sparkles, Gift, Zap } from 'lucide-react';
 import { DebugModal, DebugLog } from '../../components/DebugModal';
+import confetti from 'canvas-confetti';
 
 declare global {
     interface Window {
@@ -482,6 +483,18 @@ export function Checkout() {
         );
     }
 
+    // Fire confetti when payment is approved
+    useEffect(() => {
+        if (paymentStatus !== 'approved') return;
+        const t1 = setTimeout(() => {
+            confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#4F46E5', '#10B981', '#F59E0B', '#EC4899'] });
+        }, 200);
+        const t2 = setTimeout(() => {
+            confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, colors: ['#10B981', '#F59E0B', '#EF4444'] });
+        }, 600);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+    }, [paymentStatus]);
+
     // Success State
     if (paymentStatus === 'approved') {
         return (
@@ -495,7 +508,7 @@ export function Checkout() {
                         Seu pagamento de {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product?.price || 0)} foi processado com sucesso.
                     </p>
                     <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3">
-                        <p className="text-green-400 font-semibold">Koins serão creditados automaticamente!</p>
+                        <p className="text-green-400 font-semibold">Koins foram creditados na sua conta! 🪙</p>
                     </div>
                     <button
                         onClick={() => navigate('/')}
@@ -504,17 +517,12 @@ export function Checkout() {
                         Ir para o Dashboard
                     </button>
                 </div>
-                <button
-                    onClick={() => setDebugOpen(true)}
-                    className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-lg"
-                >
-                    <Bug size={16} />
-                    Debug Info
-                </button>
                 <DebugModal isOpen={debugOpen} onClose={() => setDebugOpen(false)} logs={logs} title="Checkout Debug (Success)" />
             </div>
         );
     }
+
+
 
     return (
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
