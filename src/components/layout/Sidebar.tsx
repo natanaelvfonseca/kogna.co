@@ -6,7 +6,7 @@ import {
     Users,
     UserCheck,
     CalendarDays,
-    CreditCard,
+    Zap,
     Settings,
     ChevronLeft,
     ChevronRight,
@@ -28,7 +28,7 @@ const menuItems = [
     { icon: UserCheck, label: 'Clientes', path: '/clients' },
     { icon: RotateCcw, label: 'Recuperação', path: '/recovery' },
     { icon: CalendarDays, label: 'Agenda', path: '/agenda' },
-    { icon: CreditCard, label: 'Faturamento', path: '/billing' },
+    { icon: Zap, label: 'Ativar Koins', path: '/billing' },
     { icon: Settings, label: 'Configurações', path: '/settings' },
     { icon: Shield, label: 'Parceiros', path: '/partners' },
 ];
@@ -43,8 +43,8 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     const { user, logout } = useAuth();
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
-    
-    
+
+
 
     // Close dropdown when clicking outside
     useEffect(() => {
