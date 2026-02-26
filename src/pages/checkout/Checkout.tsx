@@ -359,10 +359,12 @@ export function Checkout() {
                 setPixQrCode(result.point_of_interaction.transaction_data.qr_code_base64);
                 setPixCopyPaste(result.point_of_interaction.transaction_data.qr_code);
                 setPaymentStatus('pending');
+                setPaymentResult(result);
             } else if (result.mpError?.point_of_interaction) {
                 setPixQrCode(result.mpError.point_of_interaction.transaction_data.qr_code_base64);
                 setPixCopyPaste(result.mpError.point_of_interaction.transaction_data.qr_code);
                 setPaymentStatus('pending');
+                setPaymentResult(result);
             } else {
                 setPaymentResult(result);
                 setPaymentStatus('rejected');
@@ -375,6 +377,40 @@ export function Checkout() {
             setPaymentResult({ error: err.message });
         }
     }, [product, user, docNumber]);
+
+    // Polling for PIX payment status
+    useEffect(() => {
+        let interval: any;
+
+        if (paymentStatus === 'pending' && paymentResult?.id) {
+            addLog('info', `Iniciando monitoramento do pagamento: ${paymentResult.id}`);
+
+            interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${apiBase}/api/payments/verify/${paymentResult.id}`, {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('kogna_token')}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.status === 'approved') {
+                            addLog('success', 'Pagamento aprovado via polling!');
+                            setPaymentStatus('approved');
+                            clearInterval(interval);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[CHECKOUT] Polling error:', err);
+                }
+            }, 5000); // Check every 5 seconds
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [paymentStatus, paymentResult, addLog]);
 
     const copyPixCode = () => {
         if (pixCopyPaste) {

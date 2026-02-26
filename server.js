@@ -7102,10 +7102,15 @@ app.post("/api/payments/process-payment", verifyJWT, async (req, res) => {
 
     const userId = req.userId;
 
+    // Build webhook URL for IPN notifications
+    const appUrl = (process.env.APP_URL || "").trim();
+    const notificationUrl = appUrl ? `${appUrl}/api/payments/mercadopago-ipn` : null;
+
     // Ensure external_reference is set to userId for Koins tracking
     const paymentBody = {
       ...req.body,
       external_reference: userId || req.body.external_reference || "anonymous",
+      ...(notificationUrl && { notification_url: notificationUrl }),
     };
 
     log(
