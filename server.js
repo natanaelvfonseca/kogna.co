@@ -9288,30 +9288,17 @@ if (process.env.VERCEL !== '1') {
 // AGENDA API ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Helper: get organization for the authenticated user
-async function getOrgId(userId) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { organizationId: true } });
-  return user?.organizationId || null;
-}
-
 // GET /api/vendedores – list all vendors for the user's organization
 app.get("/api/vendedores", verifyJWT, async (req, res) => {
   try {
-    const orgId = await getOrgId(req.userId);
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [req.userId]);
+    const orgId = userRes.rows[0]?.organization_id;
     if (!orgId) return res.status(400).json({ error: "No organization found" });
-    const vendedores = await prisma.vendedor.findMany({
-      where: { organizationId: orgId },
-      orderBy: { createdAt: "asc" }
-    });
-    res.json(vendedores.map(v => ({
-      id: v.id,
-      nome: v.nome,
-      email: v.email,
-      whatsapp: v.whatsapp,
-      porcentagem: v.porcentagem,
-      ativo: v.ativo,
-      leads_recebidos_ciclo: v.leadsRecebidosCiclo
-    })));
+    const result = await pool.query(
+      "SELECT id, nome, email, whatsapp, porcentagem, ativo, leads_recebidos_ciclo FROM vendedores WHERE organization_id = $1 ORDER BY created_at ASC",
+      [orgId]
+    );
+    res.json(result.rows);
   } catch (err) {
     log("GET /api/vendedores error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9321,18 +9308,16 @@ app.get("/api/vendedores", verifyJWT, async (req, res) => {
 // POST /api/vendedores – create a vendor
 app.post("/api/vendedores", verifyJWT, async (req, res) => {
   try {
-    const orgId = await getOrgId(req.userId);
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [req.userId]);
+    const orgId = userRes.rows[0]?.organization_id;
     if (!orgId) return res.status(400).json({ error: "No organization found" });
     const { nome, email, whatsapp, porcentagem } = req.body;
     if (!nome || !email) return res.status(400).json({ error: "nome and email are required" });
-    const vendedor = await prisma.vendedor.create({
-      data: { organizationId: orgId, nome, email, whatsapp: whatsapp || null, porcentagem: porcentagem || 50 }
-    });
-    res.status(201).json({
-      id: vendedor.id, nome: vendedor.nome, email: vendedor.email,
-      whatsapp: vendedor.whatsapp, porcentagem: vendedor.porcentagem,
-      ativo: vendedor.ativo, leads_recebidos_ciclo: vendedor.leadsRecebidosCiclo
-    });
+    const result = await pool.query(
+      "INSERT INTO vendedores (organization_id, nome, email, whatsapp, porcentagem) VALUES ($1, $2, $3, $4, $5) RETURNING id, nome, email, whatsapp, porcentagem, ativo, leads_recebidos_ciclo",
+      [orgId, nome, email, whatsapp || null, porcentagem || 50]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     log("POST /api/vendedores error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9342,10 +9327,11 @@ app.post("/api/vendedores", verifyJWT, async (req, res) => {
 // DELETE /api/vendedores/:id – remove a vendor
 app.delete("/api/vendedores/:id", verifyJWT, async (req, res) => {
   try {
-    const orgId = await getOrgId(req.userId);
-    const vendedor = await prisma.vendedor.findFirst({ where: { id: req.params.id, organizationId: orgId } });
-    if (!vendedor) return res.status(404).json({ error: "Not found" });
-    await prisma.vendedor.delete({ where: { id: req.params.id } });
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [req.userId]);
+    const orgId = userRes.rows[0]?.organization_id;
+    const check = await pool.query("SELECT id FROM vendedores WHERE id = $1 AND organization_id = $2", [req.params.id, orgId]);
+    if (check.rows.length === 0) return res.status(404).json({ error: "Not found" });
+    await pool.query("DELETE FROM vendedores WHERE id = $1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     log("DELETE /api/vendedores/:id error: " + err);
@@ -9356,13 +9342,11 @@ app.delete("/api/vendedores/:id", verifyJWT, async (req, res) => {
 // GET /api/vendedores/:id/disponibilidade – list schedules for a vendor
 app.get("/api/vendedores/:id/disponibilidade", verifyJWT, async (req, res) => {
   try {
-    const disps = await prisma.disponibilidadeVendedor.findMany({
-      where: { vendedorId: req.params.id }, orderBy: { diaSemana: "asc" }
-    });
-    res.json(disps.map(d => ({
-      id: d.id, vendedor_id: d.vendedorId, dia_semana: d.diaSemana,
-      hora_inicio: d.horaInicio, hora_fim: d.horaFim, intervalo: d.intervalo
-    })));
+    const result = await pool.query(
+      "SELECT id, vendedor_id, dia_semana, hora_inicio, hora_fim, intervalo FROM disponibilidade_vendedor WHERE vendedor_id = $1 ORDER BY dia_semana ASC",
+      [req.params.id]
+    );
+    res.json(result.rows);
   } catch (err) {
     log("GET disponibilidade error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9373,10 +9357,11 @@ app.get("/api/vendedores/:id/disponibilidade", verifyJWT, async (req, res) => {
 app.post("/api/vendedores/:id/disponibilidade", verifyJWT, async (req, res) => {
   try {
     const { diaSemana, horaInicio, horaFim, intervalo } = req.body;
-    const d = await prisma.disponibilidadeVendedor.create({
-      data: { vendedorId: req.params.id, diaSemana: Number(diaSemana), horaInicio, horaFim, intervalo: Number(intervalo) || 30 }
-    });
-    res.status(201).json({ id: d.id, vendedor_id: d.vendedorId, dia_semana: d.diaSemana, hora_inicio: d.horaInicio, hora_fim: d.horaFim, intervalo: d.intervalo });
+    const result = await pool.query(
+      "INSERT INTO disponibilidade_vendedor (vendedor_id, dia_semana, hora_inicio, hora_fim, intervalo) VALUES ($1, $2, $3, $4, $5) RETURNING id, vendedor_id, dia_semana, hora_inicio, hora_fim, intervalo",
+      [req.params.id, Number(diaSemana), horaInicio, horaFim, Number(intervalo) || 30]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     log("POST disponibilidade error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9386,7 +9371,7 @@ app.post("/api/vendedores/:id/disponibilidade", verifyJWT, async (req, res) => {
 // DELETE /api/disponibilidade/:id – remove a schedule slot
 app.delete("/api/disponibilidade/:id", verifyJWT, async (req, res) => {
   try {
-    await prisma.disponibilidadeVendedor.delete({ where: { id: req.params.id } });
+    await pool.query("DELETE FROM disponibilidade_vendedor WHERE id = $1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     log("DELETE disponibilidade error: " + err);
@@ -9397,13 +9382,11 @@ app.delete("/api/disponibilidade/:id", verifyJWT, async (req, res) => {
 // GET /api/vendedores/:id/bloqueios – list blocks for a vendor
 app.get("/api/vendedores/:id/bloqueios", verifyJWT, async (req, res) => {
   try {
-    const bloqueios = await prisma.bloqueioAgenda.findMany({
-      where: { vendedorId: req.params.id }, orderBy: { dataInicio: "asc" }
-    });
-    res.json(bloqueios.map(b => ({
-      id: b.id, vendedor_id: b.vendedorId,
-      data_inicio: b.dataInicio.toISOString(), data_fim: b.dataFim.toISOString(), motivo: b.motivo
-    })));
+    const result = await pool.query(
+      "SELECT id, vendedor_id, data_inicio, data_fim, motivo FROM bloqueios_agenda WHERE vendedor_id = $1 ORDER BY data_inicio ASC",
+      [req.params.id]
+    );
+    res.json(result.rows);
   } catch (err) {
     log("GET bloqueios error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9414,10 +9397,11 @@ app.get("/api/vendedores/:id/bloqueios", verifyJWT, async (req, res) => {
 app.post("/api/vendedores/:id/bloqueios", verifyJWT, async (req, res) => {
   try {
     const { dataInicio, dataFim, motivo } = req.body;
-    const b = await prisma.bloqueioAgenda.create({
-      data: { vendedorId: req.params.id, dataInicio: new Date(dataInicio), dataFim: new Date(dataFim), motivo: motivo || null }
-    });
-    res.status(201).json({ id: b.id, vendedor_id: b.vendedorId, data_inicio: b.dataInicio, data_fim: b.dataFim, motivo: b.motivo });
+    const result = await pool.query(
+      "INSERT INTO bloqueios_agenda (vendedor_id, data_inicio, data_fim, motivo) VALUES ($1, $2, $3, $4) RETURNING id, vendedor_id, data_inicio, data_fim, motivo",
+      [req.params.id, new Date(dataInicio), new Date(dataFim), motivo || null]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (err) {
     log("POST bloqueios error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9427,7 +9411,7 @@ app.post("/api/vendedores/:id/bloqueios", verifyJWT, async (req, res) => {
 // DELETE /api/bloqueios/:id – remove a block
 app.delete("/api/bloqueios/:id", verifyJWT, async (req, res) => {
   try {
-    await prisma.bloqueioAgenda.delete({ where: { id: req.params.id } });
+    await pool.query("DELETE FROM bloqueios_agenda WHERE id = $1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     log("DELETE bloqueio error: " + err);
@@ -9438,25 +9422,22 @@ app.delete("/api/bloqueios/:id", verifyJWT, async (req, res) => {
 // GET /api/agendamentos – list appointments for a date
 app.get("/api/agendamentos", verifyJWT, async (req, res) => {
   try {
-    const orgId = await getOrgId(req.userId);
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [req.userId]);
+    const orgId = userRes.rows[0]?.organization_id;
     if (!orgId) return res.status(400).json({ error: "No organization found" });
-    const data = req.query.data ? new Date(req.query.data) : new Date();
-    const startOfDay = new Date(data); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(data); endOfDay.setHours(23, 59, 59, 999);
-    const agendamentos = await prisma.agendamento.findMany({
-      where: {
-        dataHora: { gte: startOfDay, lte: endOfDay },
-        vendedor: { organizationId: orgId }
-      },
-      include: { vendedor: { select: { nome: true } }, lead: { select: { name: true } } },
-      orderBy: { dataHora: "asc" }
-    });
-    res.json(agendamentos.map(a => ({
-      id: a.id, vendedor_id: a.vendedorId, lead_id: a.leadId,
-      data_hora: a.dataHora.toISOString(), duracao: a.duracao,
-      status: a.status, notas: a.notas,
-      vendedor_nome: a.vendedor?.nome, lead_nome: a.lead?.name
-    })));
+    const data = req.query.data || new Date().toISOString().split("T")[0];
+    const result = await pool.query(
+      `SELECT a.id, a.vendedor_id, a.lead_id, a.data_hora, a.duracao, a.status, a.notas,
+              v.nome AS vendedor_nome, l.name AS lead_nome
+       FROM agendamentos a
+       JOIN vendedores v ON v.id = a.vendedor_id
+       LEFT JOIN leads l ON l.id = a.lead_id
+       WHERE v.organization_id = $1
+         AND a.data_hora::date = $2::date
+       ORDER BY a.data_hora ASC`,
+      [orgId, data]
+    );
+    res.json(result.rows);
   } catch (err) {
     log("GET /api/agendamentos error: " + err);
     res.status(500).json({ error: "Internal error" });
@@ -9466,7 +9447,7 @@ app.get("/api/agendamentos", verifyJWT, async (req, res) => {
 // DELETE /api/agendamentos/:id – delete an appointment
 app.delete("/api/agendamentos/:id", verifyJWT, async (req, res) => {
   try {
-    await prisma.agendamento.delete({ where: { id: req.params.id } });
+    await pool.query("DELETE FROM agendamentos WHERE id = $1", [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     log("DELETE /api/agendamentos/:id error: " + err);
@@ -9478,22 +9459,31 @@ app.delete("/api/agendamentos/:id", verifyJWT, async (req, res) => {
 app.patch("/api/agendamentos/:id", verifyJWT, async (req, res) => {
   try {
     const { dataHora, notas, status } = req.body;
-    // Check for conflicts if changing time
     if (dataHora) {
-      const updated = await prisma.agendamento.findUnique({ where: { id: req.params.id } });
-      const conflict = await prisma.agendamento.findFirst({
-        where: {
-          vendedorId: updated.vendedorId, id: { not: req.params.id },
-          dataHora: { gte: new Date(new Date(dataHora).getTime() - 1 * 60 * 1000), lte: new Date(new Date(dataHora).getTime() + 29 * 60 * 1000) }
-        }
-      });
-      if (conflict) return res.status(409).json({ error: "Conflito de horário com outro agendamento" });
+      const agRes = await pool.query("SELECT vendedor_id FROM agendamentos WHERE id = $1", [req.params.id]);
+      const vendedorId = agRes.rows[0]?.vendedor_id;
+      if (vendedorId) {
+        const dt = new Date(dataHora);
+        const conflict = await pool.query(
+          "SELECT id FROM agendamentos WHERE vendedor_id = $1 AND id != $2 AND ABS(EXTRACT(EPOCH FROM (data_hora - $3::timestamptz))) < 1800",
+          [vendedorId, req.params.id, dt]
+        );
+        if (conflict.rows.length > 0) return res.status(409).json({ error: "Conflito de horário com outro agendamento" });
+      }
     }
-    const a = await prisma.agendamento.update({
-      where: { id: req.params.id },
-      data: { ...(dataHora ? { dataHora: new Date(dataHora) } : {}), ...(notas !== undefined ? { notas } : {}), ...(status ? { status } : {}) }
-    });
-    res.json({ id: a.id, data_hora: a.dataHora, status: a.status, notas: a.notas });
+    const fields = [];
+    const vals = [];
+    let idx = 1;
+    if (dataHora) { fields.push(`data_hora = $${idx++}`); vals.push(new Date(dataHora)); }
+    if (notas !== undefined) { fields.push(`notas = $${idx++}`); vals.push(notas); }
+    if (status) { fields.push(`status = $${idx++}`); vals.push(status); }
+    if (fields.length === 0) return res.status(400).json({ error: "Nothing to update" });
+    vals.push(req.params.id);
+    const result = await pool.query(
+      `UPDATE agendamentos SET ${fields.join(", ")} WHERE id = $${idx} RETURNING id, data_hora, status, notas`,
+      vals
+    );
+    res.json(result.rows[0]);
   } catch (err) {
     log("PATCH /api/agendamentos/:id error: " + err);
     res.status(500).json({ error: "Internal error" });
