@@ -238,7 +238,7 @@ export function Billing() {
             totalAmount: 25000,
             price: 297,
             tag: '25% De Bônus',
-            seal: '⭐ Mais escolhido',
+            seal: null,
             clients: 'atende 417 clientes',
             description: 'Ideal para empresas em crescimento que querem previsibilidade.',
             costPerClient: 'R$0,71',
@@ -254,7 +254,7 @@ export function Billing() {
             bonus_amount: 15000,
             price: 497,
             tag: '33% De Bônus',
-            seal: '👑 Melhor custo por cliente',
+            seal: null,
             clients: 'atende 1.000 clientes',
             description: 'Melhor custo por atendimento para operações de alta escala.',
             costPerClient: 'R$0,50',
@@ -304,13 +304,13 @@ export function Billing() {
                             className={`
                                 relative bg-surface border rounded-2xl p-6 transition-all duration-300 hover:-translate-y-2 group cursor-pointer overflow-hidden flex flex-col justify-between
                                 ${pkg.popular
-                                    ? 'border-primary/50 shadow-[0_0_30px_rgba(255,76,0,0.1)] scale-105 ring-1 ring-primary/20 z-10 bg-gradient-to-b from-surface to-primary/5'
-                                    : 'border-border shadow-lg hover:shadow-xl hover:border-primary/30'}
+                                    ? 'border-primary/50 shadow-lg hover:shadow-[0_0_30px_rgba(255,76,0,0.2)] ring-1 ring-primary/20 z-10'
+                                    : 'border-border shadow-lg hover:shadow-primary/10 hover:border-primary/30'}
                             `}
                             onClick={() => handleBuyClick(pkg.id)}
                         >
-                            {/* Hover Gradient Background */}
-                            <div className={`absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-500 ${pkg.color} -z-10`} />
+                            {/* Hover Subtle Glow Effect */}
+                            <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
 
                             {/* Bonus Tag */}
                             {pkg.tag && (
@@ -354,12 +354,6 @@ export function Billing() {
 
                                 <p className="text-xs text-muted-foreground leading-relaxed px-1">{pkg.description}</p>
 
-                                {/* Seal badge */}
-                                {pkg.seal && (
-                                    <div className={`text-xs font-bold px-3 py-1 rounded-full ${pkg.popular ? 'bg-purple-500/15 text-purple-400 border border-purple-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
-                                        {pkg.seal}
-                                    </div>
-                                )}
                             </div>
 
                             {/* Divider + cost per client */}
