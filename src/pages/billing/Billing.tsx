@@ -199,7 +199,7 @@ export function Billing() {
 
     const koinPackages = [
         {
-            id: 'trial',
+            id: 'b0c900eb-7ec1-47b8-92e8-206e1095d7bb',
             name: '🔹 Trial',
             amount: 1000,
             price: 25,
@@ -214,7 +214,7 @@ export function Billing() {
             popular: false
         },
         {
-            id: 'start',
+            id: '1a25eabb-6873-4331-a7d1-7677e41109e1',
             name: '⚡ Start',
             amount: 6000,
             base: 5000,
@@ -230,7 +230,7 @@ export function Billing() {
             popular: false
         },
         {
-            id: 'growth',
+            id: '16247719-5f91-47db-a6de-50f8fb739220',
             name: '🔥 Growth',
             amount: 20000,
             base: 15000,
@@ -247,7 +247,7 @@ export function Billing() {
             popular: true
         },
         {
-            id: 'elite',
+            id: 'b0c900eb-7ec1-47b8-92e8-206e1095d7bb',
             name: '👑 Elite',
             amount: 45000,
             base: 30000,
