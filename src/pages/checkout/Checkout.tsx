@@ -530,13 +530,6 @@ export function Checkout() {
                 <div className="text-center space-y-2 relative">
                     <h1 className="text-3xl font-black text-text-primary tracking-tight">🔋 Recarregar Sua IA</h1>
                     <p className="text-text-secondary">Garanta que nenhum cliente fique sem resposta.</p>
-                    <button
-                        onClick={() => setDebugOpen(true)}
-                        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-black/80 text-white rounded-full hover:bg-black transition-colors shadow-lg backdrop-blur-sm"
-                    >
-                        <Bug size={16} />
-                        Debug Info
-                    </button>
                 </div>
 
                 <div className="grid md:grid-cols-3 gap-6">
@@ -769,7 +762,7 @@ export function Checkout() {
                                             ) : (
                                                 <>
                                                     <Zap className="w-6 h-6 fill-current relative z-10" />
-                                                    <span className="relative z-10 uppercase tracking-wide">⚡ RECARREGAR MINHA IA AGORA</span>
+                                                    <span className="relative z-10 uppercase tracking-wide">RECARREGAR MINHA IA AGORA</span>
                                                 </>
                                             )}
                                         </button>
