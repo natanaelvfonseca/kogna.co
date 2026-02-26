@@ -4133,55 +4133,25 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
         ],
       );
 
-      // --- MESSAGE BUFFERING LOGIC START ---
-      // Initialize queue for this user if it doesn't exist
-      if (!messageQueues.has(remoteJid)) {
-        messageQueues.set(remoteJid, {
-          timer: null,
-          agent: agent,
-          instanceName: instanceName,
-          messages: [], // Store input messages
-        });
-      }
+      // --- PROCESS AI RESPONSE DIRECTLY ---
+      // Note: We no longer use setTimeout/in-memory buffering because Vercel serverless
+      // functions are destroyed immediately after the response is sent.
+      // The in-memory Map and setTimeout timer were lost on every request, causing the
+      // AI to never respond when the browser tab was closed.
+      // Fix: await processAIResponse() synchronously BEFORE sending the response.
+      const inputMessages = [
+        {
+          role: "user",
+          content: finalUserText,
+          imageUrl: imageUrl,
+          isAudio: isAudioInput,
+        },
+      ];
 
-      const userQueue = messageQueues.get(remoteJid);
+      // Process synchronously within this serverless function's lifetime
+      await processAIResponse(agent, remoteJid, instanceName, inputMessages);
 
-      // Add current message to queue
-      userQueue.messages.push({
-        role: "user",
-        content: finalUserText,
-        imageUrl: imageUrl, // Store image URL if present
-        isAudio: isAudioInput,
-      });
-
-      // Clear existing timer if any (debounce)
-      if (userQueue.timer) {
-        clearTimeout(userQueue.timer);
-      }
-
-      // Set a new timer to process messages after 7 seconds of inactivity
-      userQueue.timer = setTimeout(async () => {
-        const currentQueue = messageQueues.get(remoteJid);
-        if (!currentQueue) return;
-
-        // Remove from map to prevent double processing
-        messageQueues.delete(remoteJid);
-
-        // Pass the accumulated messages (or just trigger processing to read from DB/Memory)
-        // For Multimodal, we need to pass the specific current inputs if we want to send the Image URL to OpenAI.
-        // The DB history store stringified content. For Vision, we need the URL in the API call.
-        // So we'll pass `currentQueue.messages` to `processAIResponse`.
-
-        await processAIResponse(
-          currentQueue.agent,
-          remoteJid,
-          currentQueue.instanceName,
-          currentQueue.messages,
-        );
-      }, 7000); // 7 seconds buffer
-
-      return res.json({ success: true, status: "buffered" });
-      // --- MESSAGE BUFFERING LOGIC END ---
+      return res.json({ success: true });
     }
 
     res.json({ success: true });
