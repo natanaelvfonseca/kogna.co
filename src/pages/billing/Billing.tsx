@@ -296,13 +296,6 @@ export function Billing() {
 
             {/* KOIN PACKAGES GRID */}
             <div>
-                {/* Faixa estratégica */}
-                <div className="flex items-center gap-3 bg-amber-500/5 border border-amber-500/20 rounded-xl px-5 py-3 mb-6">
-                    <AlertTriangle size={18} className="text-amber-500 shrink-0" />
-                    <p className="text-sm text-amber-400/90 font-medium">
-                        Cada cliente não atendido é uma venda perdida. Garanta energia suficiente para sua IA.
-                    </p>
-                </div>
 
                 <div className="grid md:grid-cols-4 gap-6">
                     {koinPackages.map((pkg) => (
@@ -382,6 +375,14 @@ export function Billing() {
                             </button>
                         </div>
                     ))}
+                </div>
+
+                {/* Faixa estratégica */}
+                <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border rounded-xl px-5 py-3 mt-6">
+                    <AlertTriangle size={18} className="text-foreground shrink-0" />
+                    <p className="text-sm text-foreground font-medium uppercase tracking-tight">
+                        Cada cliente não atendido é uma venda perdida. Garanta energia suficiente para sua IA.
+                    </p>
                 </div>
             </div>
 
