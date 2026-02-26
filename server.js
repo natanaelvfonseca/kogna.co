@@ -1237,12 +1237,24 @@ app.post("/api/register", async (req, res) => {
   }
 
   try {
-    // Check if user already exists
-    const existing = await pool.query("SELECT id FROM users WHERE email = $1", [
+    // Check if email already exists
+    const existingEmail = await pool.query("SELECT id FROM users WHERE email = $1", [
       email,
     ]);
-    if (existing.rows.length > 0) {
+    if (existingEmail.rows.length > 0) {
       return res.status(409).json({ error: "Este e-mail já está cadastrado" });
+    }
+
+    // Check if WhatsApp/phone already exists (if provided)
+    if (whatsapp && whatsapp.trim()) {
+      const cleanPhone = whatsapp.replace(/\D/g, '');
+      const existingPhone = await pool.query(
+        "SELECT id FROM users WHERE REGEXP_REPLACE(personal_phone, '\\D', '', 'g') = $1",
+        [cleanPhone]
+      );
+      if (existingPhone.rows.length > 0) {
+        return res.status(409).json({ error: "Este número de celular já está cadastrado" });
+      }
     }
 
     // Hash password
@@ -2205,21 +2217,95 @@ app.post("/api/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
   }
 });
 
-// Admin: Delete User
+// Admin: Delete User (full cascade)
 app.delete("/api/admin/users/:id", verifyJWT, verifyAdmin, async (req, res) => {
+  const userId = req.params.id;
   try {
-    const userId = req.params.id;
-    // Cascade delete would be better in DB, but manual cleanup for safety
-    // Delete users org
-    // For MVP, letting DB foreign keys handle cascade or error if strictly bound
-    // Check DB schema: users linked to orgs.
+    log(`[ADMIN-DELETE] Starting cascade delete for user ${userId}`);
 
+    // 1. Find the user's organization
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: "Usuário não encontrado" });
+    }
+    const orgId = userRes.rows[0]?.organization_id;
+
+    // 2. Delete chat_messages related to agents of this org
+    if (orgId) {
+      await pool.query(
+        `DELETE FROM chat_messages WHERE agent_id IN (SELECT id FROM agents WHERE organization_id = $1)`,
+        [orgId]
+      ).catch(e => log(`[ADMIN-DELETE] chat_messages: ${e.message}`));
+
+      // 3. Delete chat_sessions related to agents of this org
+      await pool.query(
+        `DELETE FROM chat_sessions WHERE agent_id IN (SELECT id FROM agents WHERE organization_id = $1)`,
+        [orgId]
+      ).catch(e => log(`[ADMIN-DELETE] chat_sessions: ${e.message}`));
+
+      // 4. Delete agents
+      await pool.query(`DELETE FROM agents WHERE organization_id = $1`, [orgId])
+        .catch(e => log(`[ADMIN-DELETE] agents: ${e.message}`));
+
+      // 5. Delete whatsapp_instances
+      await pool.query(`DELETE FROM whatsapp_instances WHERE organization_id = $1 OR user_id = $2`, [orgId, userId])
+        .catch(e => log(`[ADMIN-DELETE] whatsapp_instances: ${e.message}`));
+
+      // 6. Delete leads
+      await pool.query(`DELETE FROM leads WHERE organization_id = $1`, [orgId])
+        .catch(e => log(`[ADMIN-DELETE] leads: ${e.message}`));
+    }
+
+    // 7. Delete notifications
+    await pool.query(`DELETE FROM notifications WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] notifications: ${e.message}`));
+
+    // 8. Delete billing_history
+    await pool.query(`DELETE FROM billing_history WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] billing_history: ${e.message}`));
+
+    // 9. Delete api_keys
+    await pool.query(`DELETE FROM api_keys WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] api_keys: ${e.message}`));
+
+    // 10. Delete ia_configs
+    await pool.query(`DELETE FROM ia_configs WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] ia_configs: ${e.message}`));
+
+    // 11. Delete followup_sequences
+    await pool.query(`DELETE FROM followup_sequences WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] followup_sequences: ${e.message}`));
+
+    // 12. Delete partner data (commissions, clicks, partner record)
+    const partnerRes = await pool.query(`SELECT id FROM partners WHERE user_id = $1`, [userId]);
+    if (partnerRes.rows.length > 0) {
+      const partnerId = partnerRes.rows[0].id;
+      await pool.query(`DELETE FROM partner_commissions WHERE partner_id = $1`, [partnerId])
+        .catch(e => log(`[ADMIN-DELETE] partner_commissions: ${e.message}`));
+      await pool.query(`DELETE FROM partner_clicks WHERE partner_id = $1`, [partnerId])
+        .catch(e => log(`[ADMIN-DELETE] partner_clicks: ${e.message}`));
+      await pool.query(`DELETE FROM partners WHERE id = $1`, [partnerId])
+        .catch(e => log(`[ADMIN-DELETE] partners: ${e.message}`));
+    }
+
+    // 13. Delete webhook_subscriptions
+    await pool.query(`DELETE FROM webhook_subscriptions WHERE user_id = $1`, [userId])
+      .catch(e => log(`[ADMIN-DELETE] webhook_subscriptions: ${e.message}`));
+
+    // 14. Delete the organization
+    if (orgId) {
+      await pool.query(`DELETE FROM organizations WHERE id = $1`, [orgId])
+        .catch(e => log(`[ADMIN-DELETE] organizations: ${e.message}`));
+    }
+
+    // 15. Finally delete the user
     await pool.query("DELETE FROM users WHERE id = $1", [userId]);
-    log(`Admin deleted user ${userId}`);
+
+    log(`[ADMIN-DELETE] User ${userId} and all related data deleted successfully`);
     res.json({ success: true });
   } catch (err) {
     log("Admin delete user error: " + err.toString());
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error", details: err.message });
   }
 });
 
