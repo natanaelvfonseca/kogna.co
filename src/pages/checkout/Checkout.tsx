@@ -45,6 +45,18 @@ export function Checkout() {
     const [debugOpen, setDebugOpen] = useState(false);
     const [logs, setLogs] = useState<DebugLog[]>([]);
 
+    // Fire confetti when payment is approved
+    useEffect(() => {
+        if (paymentStatus !== 'approved') return;
+        const t1 = setTimeout(() => {
+            confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#4F46E5', '#10B981', '#F59E0B', '#EC4899'] });
+        }, 200);
+        const t2 = setTimeout(() => {
+            confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, colors: ['#10B981', '#F59E0B', '#EF4444'] });
+        }, 600);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+    }, [paymentStatus]);
+
 
     // Bonus Logic
     const getBonusAmount = (pid: string) => {
@@ -482,18 +494,6 @@ export function Checkout() {
             </div>
         );
     }
-
-    // Fire confetti when payment is approved
-    useEffect(() => {
-        if (paymentStatus !== 'approved') return;
-        const t1 = setTimeout(() => {
-            confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#4F46E5', '#10B981', '#F59E0B', '#EC4899'] });
-        }, 200);
-        const t2 = setTimeout(() => {
-            confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, colors: ['#10B981', '#F59E0B', '#EF4444'] });
-        }, 600);
-        return () => { clearTimeout(t1); clearTimeout(t2); };
-    }, [paymentStatus]);
 
     // Success State
     if (paymentStatus === 'approved') {
