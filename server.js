@@ -1813,6 +1813,20 @@ app.post("/api/onboarding/create-agent", verifyJWT, async (req, res) => {
     if (!orgId)
       return res.status(400).json({ error: "User has no organization" });
 
+    // 1.1 Prevent Duplicate Agent Creation during Onboarding
+    const existingAgent = await pool.query(
+      "SELECT id FROM agents WHERE organization_id = $1 LIMIT 1",
+      [orgId],
+    );
+    if (existingAgent.rows.length > 0) {
+      log(`[ONBOARDING] Agent already exists for org ${orgId}. Skipping creation.`);
+      return res.json({
+        success: true,
+        agent: existingAgent.rows[0],
+        message: "Agent already exists",
+      });
+    }
+
     // 2. Define Templates (kept in sync with src/data/agentTemplates.ts)
     const templates = {
       sdr: `[IDENTIDADE E MISSÃO]

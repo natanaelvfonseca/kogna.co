@@ -141,6 +141,7 @@ export function Onboarding() {
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [wsStatus, setWsStatus] = useState<'idle' | 'connecting' | 'qrcode' | 'connected'>('idle');
     const [timer, setTimer] = useState(60);
+    const [isCompleting, setIsCompleting] = useState(false);
     const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Debug State
@@ -445,6 +446,8 @@ export function Onboarding() {
     };
 
     const completeOnboarding = async () => {
+        if (isCompleting) return;
+        setIsCompleting(true);
         setPotential(100);
 
         try {
