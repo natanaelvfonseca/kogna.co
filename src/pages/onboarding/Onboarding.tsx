@@ -130,7 +130,8 @@ export function Onboarding() {
         targetNiche: '',
         unknownBehavior: '',
         voiceTone: '',
-        restrictions: ''
+        restrictions: '',
+        customerPain: ''
     });
 
     // File State (Step 3)
@@ -228,14 +229,26 @@ export function Onboarding() {
     };
 
     const handleNegocio = () => {
-        if (!formData.companyProduct) { setError('Informe o que sua empresa vende.'); return; }
-        if (formData.targetAudience.length === 0) { setError('Selecione quem é seu cliente principal.'); return; }
-        if (formData.targetAudience.includes('nicho') && !formData.targetNiche) { setError('Informe o nicho específico.'); return; }
-
-        playSound('success');
+        if (!formData.companyProduct.trim()) {
+            setError('Descreva o que seu negócio vende.');
+            return;
+        }
+        if (formData.companyProduct.length < 100) {
+            setError(`A descrição do produto está muito curta (${formData.companyProduct.length}/100). Explique melhor para a IA ser mais inteligente.`);
+            return;
+        }
+        if (!formData.customerPain || formData.customerPain.length < 50) {
+            setError(`Descreva a dor do cliente com pelo menos 50 caracteres (${formData.customerPain?.length || 0}/50).`);
+            return;
+        }
+        if (formData.targetAudience.length === 0) {
+            setError('Selecione pelo menos um público alvo.');
+            return;
+        }
         setError(null);
-        setSubStep(2); // Goes to Revenue Step
-        setPotential(60);
+        setSubStep(2);
+        setPotential(prev => Math.min(prev + 15, 60));
+        playSound('success');
     };
 
     // NEW STEP: Revenue
@@ -470,10 +483,11 @@ export function Onboarding() {
                         companyName: formData.companyName,
                         aiName: formData.aiName,
                         companyProduct: formData.companyProduct,
-                        targetAudience: audienceDisplay,
+                        customerPain: formData.customerPain,
+                        targetAudience: formData.targetAudience.join(', '),
                         unknownBehavior: formData.unknownBehavior,
                         voiceTone: formData.voiceTone,
-                        restrictions: formData.restrictions || 'Nenhuma restrição definida.'
+                        restrictions: formData.restrictions
                     })
                 });
             }
@@ -690,13 +704,32 @@ export function Onboarding() {
 
                                         <div className="space-y-4">
                                             <div>
-                                                <label className="text-sm font-medium text-foreground mb-1.5 block">Produto/Serviço Principal</label>
-                                                <input
-                                                    type="text"
-                                                    className="w-full px-4 py-3.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
-                                                    placeholder="Ex: Tratamento Odontológico"
+                                                <div className="flex justify-between items-end mb-1.5">
+                                                    <label className="text-sm font-medium text-foreground block">Produto/Serviço Principal (Mín. 100 caracteres)</label>
+                                                    <span className={`text-[10px] font-bold ${formData.companyProduct.length < 100 ? 'text-red-500' : 'text-green-500'}`}>
+                                                        {formData.companyProduct.length}/100
+                                                    </span>
+                                                </div>
+                                                <textarea
+                                                    className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none resize-none h-24 text-sm"
+                                                    placeholder="Descreva detalhadamente o que você vende, os diferenciais e o valor que entrega..."
                                                     value={formData.companyProduct}
                                                     onChange={e => setFormData({ ...formData, companyProduct: e.target.value })}
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <div className="flex justify-between items-end mb-1.5">
+                                                    <label className="text-sm font-medium text-foreground block">Qual o maior problema/dor que o cliente quer resolver? (Mín. 50 chars)</label>
+                                                    <span className={`text-[10px] font-bold ${formData.customerPain.length < 50 ? 'text-red-500' : 'text-green-500'}`}>
+                                                        {formData.customerPain.length}/50
+                                                    </span>
+                                                </div>
+                                                <textarea
+                                                    className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none resize-none h-20 text-sm"
+                                                    placeholder="Ex: O cliente tem medo de dentista e quer um atendimento humanizado e sem dor..."
+                                                    value={formData.customerPain}
+                                                    onChange={e => setFormData({ ...formData, customerPain: e.target.value })}
                                                 />
                                             </div>
 
@@ -704,7 +737,7 @@ export function Onboarding() {
                                                 <label className="text-sm font-medium text-foreground mb-1.5 block">Preço / Ticket Médio (Opcional)</label>
                                                 <input
                                                     type="text"
-                                                    className="w-full px-4 py-3.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
+                                                    className="w-full px-4 py-3 bg-background border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none text-sm"
                                                     placeholder="Ex: R$ 250,00"
                                                     value={formData.productPrice}
                                                     onChange={e => setFormData({ ...formData, productPrice: e.target.value })}
