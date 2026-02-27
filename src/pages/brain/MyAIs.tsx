@@ -215,12 +215,17 @@ export function MyAIs() {
                                 badge: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-800',
                                 icon: 'text-white'
                             },
+                            vendedor: {
+                                gradient: 'from-yellow-500 to-amber-600 shadow-yellow-500/20',
+                                badge: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-800',
+                                icon: 'text-white'
+                            },
                             suporte: {
                                 gradient: 'from-emerald-500 to-teal-600 shadow-emerald-500/20',
                                 badge: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800',
                                 icon: 'text-white'
                             },
-                            onboarding: {
+                            atendente: {
                                 gradient: 'from-blue-500 to-indigo-600 shadow-blue-500/20',
                                 badge: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800',
                                 icon: 'text-white'
