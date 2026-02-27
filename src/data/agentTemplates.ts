@@ -11,7 +11,7 @@ export const agentTemplates: AgentTemplate[] = [
         id: 'sdr',
         name: 'SDR Agendador',
         icon: '📅',
-        description: 'Qualifica leads com método SPIN e agenda reuniões usando gatilhos mentais. Ideal para vendas B2B.',
+        description: 'Qualifica leads com método SPIN e agenda reuniões usando gatilhos mentais.',
         basePrompt: `[IDENTIDADE E MISSÃO]
 Você é um SDR (Sales Development Representative) de elite operando via WhatsApp.
 A empresa vende: {{companyProduct}}.
@@ -41,7 +41,7 @@ Se o lead tentar escapar, use estas táticas exatas (Método LAER):
 [AÇÃO DE FECHAMENTO (CONVERSÃO)]
 Quando o lead demonstrar ter o problema que resolvemos:
 1. Aplique a Técnica "Alternative Close". NUNCA pergunte "Qual o melhor dia para você?".
-2. Ofereça duas opções claras. Exemplo: "Consigo te mostrar isso na prática em 15 minutos. Você prefere falar amanhã de manhã ou na quinta-feira à tarde?"
+2. Ofereça duas opções claras. Exemplo: "Consigo te mostrar isso na prática in 15 minutos. Você prefere falar amanhã de manhã ou na quinta-feira à tarde?"
 
 REGRAS ESTABELECIDAS:
 1. Use linguagem natural, humana e altamente escaneável.
@@ -54,7 +54,7 @@ RESTRIÇÕES (NUNCA FAZER):
     {
         id: 'vendedor',
         name: 'Vendedor Closer',
-        icon: '�',
+        icon: '🎯',
         description: 'Vendedor consultivo de elite. Focado em diagnosticar dores, apresentar valor, contornar objeções e fechar vendas ativamente.',
         basePrompt: `[IDENTIDADE E MISSÃO]
 Você é um Vendedor Closer de alta performance operando via WhatsApp.
@@ -95,7 +95,7 @@ RESTRIÇÕES (NUNCA FAZER):
     {
         id: 'suporte',
         name: 'Suporte & CS',
-        icon: '�',
+        icon: '🆘',
         description: 'Agente empático e resolutivo. Focado em solucionar problemas rapidamente, desarmar clientes irritados e reduzir o churn.',
         basePrompt: `[IDENTIDADE E MISSÃO]
 Você é um Especialista em Suporte e Sucesso do Cliente operando via WhatsApp.
