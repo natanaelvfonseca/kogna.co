@@ -3983,7 +3983,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       // 1. Check actual status on Evolution API first
       try {
         const statusResponse = await fetch(
-          `${evolutionApiUrl} /instance/connectionState / ${instanceName} `,
+          `${evolutionApiUrl}/instance/connectionState/${instanceName}`,
           {
             method: "GET",
             headers: { apikey: evolutionApiKey },
@@ -4022,7 +4022,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       // 2. If not connected, try to fetch new QR Code
       try {
         const qrResponse = await fetch(
-          `${evolutionApiUrl} /instance/connect / ${instanceName} `,
+          `${evolutionApiUrl}/instance/connect/${instanceName}`,
           {
             method: "GET",
             headers: { apikey: evolutionApiKey },
@@ -4080,9 +4080,9 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       groupsIgnore: true, // Try camelCase
     };
 
-    log(`Creating instance in Evolution API: ${instanceName} `);
+    log(`Creating instance in Evolution API: ${instanceName}`);
 
-    let evolutionResponse = await fetch(`${evolutionApiUrl} /instance/create`, {
+    let evolutionResponse = await fetch(`${evolutionApiUrl}/instance/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -4098,19 +4098,19 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         (errorText.includes("already") || errorText.includes("Forbidden"))
       ) {
         log(
-          `Instance ${instanceName} is stuck(Zombie).Force deleting to clean up...`,
+          `Instance ${instanceName} is stuck (Zombie). Force deleting to clean up...`,
         );
-        await fetch(`${evolutionApiUrl} /instance/logout / ${instanceName} `, {
+        await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
           method: "DELETE",
           headers: { apikey: evolutionApiKey },
         });
-        await fetch(`${evolutionApiUrl} /instance/delete / ${instanceName} `, {
+        await fetch(`${evolutionApiUrl}/instance/delete/${instanceName}`, {
           method: "DELETE",
           headers: { apikey: evolutionApiKey },
         });
 
         // Retry create
-        evolutionResponse = await fetch(`${evolutionApiUrl} /instance/create`, {
+        evolutionResponse = await fetch(`${evolutionApiUrl}/instance/create`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -4129,7 +4129,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     const evolutionData = await evolutionResponse.json();
 
     // 2. Configure Webhook
-    await fetch(`${evolutionApiUrl} /webhook/set / ${instanceName} `, {
+    await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evolutionApiKey },
       body: JSON.stringify({
@@ -4156,7 +4156,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     };
 
     const settingsRes = await fetch(
-      `${evolutionApiUrl} /settings/set / ${instanceName} `,
+      `${evolutionApiUrl}/settings/set/${instanceName}`,
       {
         method: "POST",
         headers: {
@@ -4177,7 +4177,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
 
     // 4. Get QR
     const qrResponse = await fetch(
-      `${evolutionApiUrl} /instance/connect / ${instanceName} `,
+      `${evolutionApiUrl}/instance/connect/${instanceName}`,
       {
         method: "GET",
         headers: { apikey: evolutionApiKey },
