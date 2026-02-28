@@ -153,7 +153,32 @@ const initPool = async () => {
   }
 };
 
-initPool();
+const ensureLeadsColumns = async () => {
+  try {
+    log("[MIGRATION] Checking for Lead Score columns...");
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'score') THEN
+          ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'temperature') THEN
+          ALTER TABLE leads ADD COLUMN temperature TEXT DEFAULT 'Frio';
+        END IF;
+      END $$;
+    `);
+    log("[MIGRATION] Lead Score columns verified/added successfully.");
+  } catch (e) {
+    log("[MIGRATION] Error ensuring Lead Score columns: " + e.message);
+  }
+};
+
+const setup = async () => {
+  await initPool();
+  await ensureLeadsColumns();
+};
+
+setup();
 
 // Ensure the message_buffer table exists (DB-based debounce for serverless)
 const ensureMessageBuffer = async () => {
