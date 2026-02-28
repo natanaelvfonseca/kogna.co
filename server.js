@@ -9696,6 +9696,21 @@ app.patch("/api/agendamentos/:id", verifyJWT, async (req, res) => {
   }
 });
 
+// Temporary Migration Route to execute schema changes against the live database pool
+app.get("/api/run-migration-temp", async (req, res) => {
+  try {
+    log("[MIGRATION] Running temporary migration against live pool...");
+    await pool.query('ALTER TABLE organizations ADD COLUMN IF NOT EXISTS whatsapp_connections_limit INT DEFAULT 1;');
+    await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS connections_bonus INT DEFAULT 0;');
+    await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS type VARCHAR(50) DEFAULT \'KOINS\';');
+    log("[MIGRATION] Temporary migration completed successfully.");
+    res.json({ success: true, message: "Migration executed successfully" });
+  } catch (err) {
+    log("[MIGRATION] Error executing migration: " + err.message);
+    res.status(500).json({ error: "Migration failed", details: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Start Server only if NOT running on Vercel
