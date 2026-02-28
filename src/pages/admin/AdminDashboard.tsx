@@ -27,13 +27,8 @@ interface AdminUser {
     plan_type: string;
 }
 
-interface ConsumptionLog {
-    user_name: string;
-    total_prompt_tokens: number;
-    total_completion_tokens: number;
-    total_cost: number;
-    estimated_koins_spent: number;
-}
+
+
 
 export function AdminDashboard() {
     const { token } = useAuth();
