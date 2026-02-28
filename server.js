@@ -2268,33 +2268,27 @@ app.get("/api/admin/strategic-metrics", verifyJWT, verifyAdmin, async (req, res)
         previousDateFilter = "AND 1=0"; // Dummy to return 0 for previous
     }
 
-    // Since our database currently lacks precise historical product tracking in billing_history,
-    // we fetch total real revenue and distribute it based on logical structures for the Dashboard.
+    // Execução em PARALELO para evitar Timeouts na Vercel (limite de 10-15s)
+    const [revenueRes, prevRevenueRes, usersRes, orgsRes, tokensRes, productsRes] = await Promise.all([
+      pool.query(`SELECT COALESCE(SUM(value), 0) as total FROM billing_history WHERE status = 'approved' ${dateFilter}`),
+      pool.query(`SELECT COALESCE(SUM(value), 0) as prev_total FROM billing_history WHERE status = 'approved' ${previousDateFilter}`),
+      pool.query(`SELECT COUNT(id) as total FROM users WHERE 1=1 ${dateFilter}`),
+      pool.query(`SELECT SUM(whatsapp_connections_limit) as total_conn FROM organizations`),
+      pool.query(`SELECT COALESCE(SUM(token_cost), 0) as total_api_cost FROM chat_messages WHERE 1=1 ${dateFilter}`),
+      pool.query(`SELECT * FROM products`)
+    ]);
 
-    // Revenue Data
-    const revenueRes = await pool.query(`SELECT COALESCE(SUM(value), 0) as total FROM billing_history WHERE status = 'approved' ${dateFilter}`);
-    const prevRevenueRes = await pool.query(`SELECT COALESCE(SUM(value), 0) as prev_total FROM billing_history WHERE status = 'approved' ${previousDateFilter}`);
-
-    const totalRevenue = parseFloat(revenueRes.rows[0].total);
-    const prevRevenue = parseFloat(prevRevenueRes.rows[0].prev_total);
-
-    // Clients Data
-    const usersRes = await pool.query(`SELECT COUNT(id) as total FROM users WHERE 1=1 ${dateFilter}`);
-    const usersTotal = parseInt(usersRes.rows[0].total);
-
-    // Active Connections
-    const orgsRes = await pool.query(`SELECT SUM(whatsapp_connections_limit) as total_conn FROM organizations`);
+    const totalRevenue = parseFloat(revenueRes.rows[0]?.total || 0);
+    const prevRevenue = parseFloat(prevRevenueRes.rows[0]?.prev_total || 0);
+    const usersTotal = parseInt(usersRes.rows[0]?.total || 0);
     const totalConnections = parseInt(orgsRes.rows[0]?.total_conn || 0);
-
-    // Cost Consumption Data
-    const tokensRes = await pool.query(`SELECT COALESCE(SUM(token_cost), 0) as total_api_cost FROM chat_messages WHERE 1=1 ${dateFilter}`);
     const totalApiCostReal = parseFloat(tokensRes.rows[0]?.total_api_cost || 0);
 
     // Business Logic Calculations (Hybrid Mocks + Real data)
-    let koinsRevenue = totalRevenue > 0 ? totalRevenue * 0.85 : 0; // 85% usually Koins 
+    let koinsRevenue = totalRevenue > 0 ? totalRevenue * 0.85 : 0;
     let connectionsRevenue = totalRevenue > 0 ? totalRevenue * 0.15 : 0;
 
-    // Ensure logical minimums for completely empty databases to showcase the Dashboard shape
+    // Se o banco estiver zerado (totalRevenue == 0), usamos mocks estratégicos para preencher o visual
     const isMockedBase = totalRevenue === 0;
     if (isMockedBase) {
       koinsRevenue = 15400.00;
@@ -2306,28 +2300,26 @@ app.get("/api/admin/strategic-metrics", verifyJWT, verifyAdmin, async (req, res)
     const adsCost = isMockedBase ? 2300.00 : (displayTotalRev > 0 ? displayTotalRev * 0.20 : 0);
     const estimatedProfit = displayTotalRev - apiCost - adsCost;
 
-    // Real System Products with structured sales mapping
-    const productsRes = await pool.query(`SELECT * FROM products`);
-    let products = productsRes.rows.map((p, idx) => {
-      // Create a deterministic seeded spread of sales based on product type
+    // Mapeamento de produtos com fallback defensivo
+    const products = (productsRes.rows || []).map((p) => {
       const isKoins = p.type === 'KOINS';
-      const mockSales = isKoins ? Math.floor(Math.random() * 80) + 20 : Math.floor(Math.random() * 30) + 5;
+      const mockSales = isKoins ? 50 : 10;
       const sales = isMockedBase ? mockSales : (totalRevenue > 0 ? Math.max(1, Math.floor(mockSales * (totalRevenue / 10000))) : 0);
       return {
         id: p.id,
         name: p.name,
         type: p.type,
-        price: parseFloat(p.price),
+        price: parseFloat(p.price || 0),
         sales: sales,
-        revenue: sales * parseFloat(p.price)
+        revenue: sales * parseFloat(p.price || 0)
       };
     }).sort((a, b) => b.revenue - a.revenue);
 
-    // Historical Chart Data (Mocking a distribution across 6 data points)
-    const revenueChartData = Array.from({ length: 6 }).map((_, i) => ({
-      date: \`Ponto \${i+1}\`,
-      koins: Math.floor((displayTotalRev/6) * 0.85 * (1 + (Math.random() * 0.2 - 0.1))),
-      connections: Math.floor((displayTotalRev/6) * 0.15 * (1 + (Math.random() * 0.2 - 0.1)))
+    // Dados do gráfico com distribuição temporal simulada
+    const revenueChartData = Array.from({ length: 7 }).map((_, i) => ({
+      date: i === 6 ? 'Hoje' : `-${6 - i}d`,
+      koins: Math.floor((koinsRevenue / 7) * (0.8 + Math.random() * 0.4)),
+      connections: Math.floor((connectionsRevenue / 7) * (0.8 + Math.random() * 0.4))
     }));
 
     // Kogna Health Index (Growth + Margin + Activation average)
@@ -2369,9 +2361,9 @@ app.get("/api/admin/strategic-metrics", verifyJWT, verifyAdmin, async (req, res)
       },
       healthIndex
     });
-  } catch(err) {
+  } catch (err) {
     log("Strategic Metrics Error: " + err.message);
-    res.status(500).json({error: "Failed fetching strategic metrics"});
+    res.status(500).json({ error: "Failed fetching strategic metrics" });
   }
 });
 
@@ -2392,7 +2384,7 @@ app.patch(
         [amount, userId],
       );
 
-      log(`Admin adjusted koins for user ${ userId } by ${ amount } `);
+      log(`Admin adjusted koins for user ${userId} by ${amount} `);
       res.json({ success: true });
     } catch (err) {
       log("Admin koin update error: " + err.toString());
@@ -2435,7 +2427,7 @@ app.post("/api/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
       user.id,
     ]);
 
-    log(`Admin created user ${ email }. Temp pass: ${ tempPassword } `);
+    log(`Admin created user ${email}. Temp pass: ${tempPassword} `);
     res.json({ user, tempPassword });
   } catch (err) {
     log("Admin create user error: " + err.toString());
@@ -2447,7 +2439,7 @@ app.post("/api/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
 app.delete("/api/admin/users/:id", verifyJWT, verifyAdmin, async (req, res) => {
   const userId = req.params.id;
   try {
-    log(`[ADMIN - DELETE] Starting cascade delete for user ${ userId }`);
+    log(`[ADMIN - DELETE] Starting cascade delete for user ${userId}`);
 
     // 1. Find the user's organization
     const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [userId]);
@@ -2461,73 +2453,73 @@ app.delete("/api/admin/users/:id", verifyJWT, verifyAdmin, async (req, res) => {
       await pool.query(
         `DELETE FROM chat_messages WHERE agent_id IN(SELECT id FROM agents WHERE organization_id = $1)`,
         [orgId]
-      ).catch(e => log(`[ADMIN - DELETE] chat_messages: ${ e.message } `));
+      ).catch(e => log(`[ADMIN - DELETE] chat_messages: ${e.message} `));
 
       // 3. Delete chat_sessions related to agents of this org
       await pool.query(
         `DELETE FROM chat_sessions WHERE agent_id IN(SELECT id FROM agents WHERE organization_id = $1)`,
         [orgId]
-      ).catch(e => log(`[ADMIN - DELETE] chat_sessions: ${ e.message } `));
+      ).catch(e => log(`[ADMIN - DELETE] chat_sessions: ${e.message} `));
 
       // 4. Delete agents
       await pool.query(`DELETE FROM agents WHERE organization_id = $1`, [orgId])
-        .catch(e => log(`[ADMIN - DELETE] agents: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] agents: ${e.message} `));
 
       // 5. Delete whatsapp_instances
       await pool.query(`DELETE FROM whatsapp_instances WHERE organization_id = $1 OR user_id = $2`, [orgId, userId])
-        .catch(e => log(`[ADMIN - DELETE] whatsapp_instances: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] whatsapp_instances: ${e.message} `));
 
       // 6. Delete leads
       await pool.query(`DELETE FROM leads WHERE organization_id = $1`, [orgId])
-        .catch(e => log(`[ADMIN - DELETE] leads: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] leads: ${e.message} `));
     }
 
     // 7. Delete notifications
     await pool.query(`DELETE FROM notifications WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] notifications: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] notifications: ${e.message} `));
 
     // 8. Delete billing_history
     await pool.query(`DELETE FROM billing_history WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] billing_history: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] billing_history: ${e.message} `));
 
     // 9. Delete api_keys
     await pool.query(`DELETE FROM api_keys WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] api_keys: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] api_keys: ${e.message} `));
 
     // 10. Delete ia_configs
     await pool.query(`DELETE FROM ia_configs WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] ia_configs: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] ia_configs: ${e.message} `));
 
     // 11. Delete followup_sequences
     await pool.query(`DELETE FROM followup_sequences WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] followup_sequences: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] followup_sequences: ${e.message} `));
 
     // 12. Delete partner data (commissions, clicks, partner record)
     const partnerRes = await pool.query(`SELECT id FROM partners WHERE user_id = $1`, [userId]);
     if (partnerRes.rows.length > 0) {
       const partnerId = partnerRes.rows[0].id;
       await pool.query(`DELETE FROM partner_commissions WHERE partner_id = $1`, [partnerId])
-        .catch(e => log(`[ADMIN - DELETE] partner_commissions: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] partner_commissions: ${e.message} `));
       await pool.query(`DELETE FROM partner_clicks WHERE partner_id = $1`, [partnerId])
-        .catch(e => log(`[ADMIN - DELETE] partner_clicks: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] partner_clicks: ${e.message} `));
       await pool.query(`DELETE FROM partners WHERE id = $1`, [partnerId])
-        .catch(e => log(`[ADMIN - DELETE] partners: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] partners: ${e.message} `));
     }
 
     // 13. Delete webhook_subscriptions
     await pool.query(`DELETE FROM webhook_subscriptions WHERE user_id = $1`, [userId])
-      .catch(e => log(`[ADMIN - DELETE] webhook_subscriptions: ${ e.message } `));
+      .catch(e => log(`[ADMIN - DELETE] webhook_subscriptions: ${e.message} `));
 
     // 14. Delete the organization
     if (orgId) {
       await pool.query(`DELETE FROM organizations WHERE id = $1`, [orgId])
-        .catch(e => log(`[ADMIN - DELETE] organizations: ${ e.message } `));
+        .catch(e => log(`[ADMIN - DELETE] organizations: ${e.message} `));
     }
 
     // 15. Finally delete the user
     await pool.query("DELETE FROM users WHERE id = $1", [userId]);
 
-    log(`[ADMIN - DELETE] User ${ userId } and all related data deleted successfully`);
+    log(`[ADMIN - DELETE] User ${userId} and all related data deleted successfully`);
     res.json({ success: true });
   } catch (err) {
     log("Admin delete user error: " + err.toString());
@@ -2626,7 +2618,7 @@ VALUES(gen_random_uuid(), $1, $2, $3, NOW(), 0)
       ]);
 
       log(
-        `Admin created new user ${ email } for partnership.Temp pass: ${ tempPassword } `,
+        `Admin created new user ${email} for partnership.Temp pass: ${tempPassword} `,
       );
       // In a real app, send email with tempPassword. Here, we just log it.
     } else {
@@ -2690,11 +2682,11 @@ app.put("/api/admin/partners/:id", verifyJWT, verifyAdmin, async (req, res) => {
     let i = 1;
 
     if (status) {
-      updates.push(`status = $${ i++ } `);
+      updates.push(`status = $${i++} `);
       values.push(status);
     }
     if (commissionPercentage !== undefined) {
-      updates.push(`commission_percentage = $${ i++ } `);
+      updates.push(`commission_percentage = $${i++} `);
       values.push(commissionPercentage);
     }
 
@@ -2703,14 +2695,14 @@ app.put("/api/admin/partners/:id", verifyJWT, verifyAdmin, async (req, res) => {
 
     values.push(partnerId);
     const result = await pool.query(
-      `UPDATE partners SET ${ updates.join(", ") } WHERE id = $${ i } RETURNING * `,
+      `UPDATE partners SET ${updates.join(", ")} WHERE id = $${i} RETURNING * `,
       values,
     );
 
     if (result.rowCount === 0)
       return res.status(404).json({ error: "Parceiro não encontrado" });
 
-    log(`Admin updated partner ${ partnerId }: ${ JSON.stringify(req.body) } `);
+    log(`Admin updated partner ${partnerId}: ${JSON.stringify(req.body)} `);
     res.json({ success: true, partner: result.rows[0] });
   } catch (err) {
     log("Admin partner update error: " + err.toString());
@@ -2751,7 +2743,7 @@ async function processAffiliateCommission(userId, purchaseAmount) {
     );
 
     log(
-      `Commission of R$${ commissionAmount.toFixed(2) } created for partner ${ partner.id } from user ${ userId } `,
+      `Commission of R$${commissionAmount.toFixed(2)} created for partner ${partner.id} from user ${userId} `,
     );
   } catch (err) {
     log("Commission processing error: " + err.toString());
@@ -2789,7 +2781,7 @@ wallet_balance_pending = wallet_balance_pending - $1,
         [totalConfirmed, referredBy],
       );
       log(
-        `Confirmed R$${ totalConfirmed.toFixed(2) } commission for partner ${ referredBy }`,
+        `Confirmed R$${totalConfirmed.toFixed(2)} commission for partner ${referredBy}`,
       );
     }
   } catch (err) {
@@ -2836,7 +2828,7 @@ app.get("/api/me", verifyJWT, async (req, res) => {
 
     res.json({ user });
   } catch (err) {
-    log(`Error fetching current user: ${ err.message } `);
+    log(`Error fetching current user: ${err.message} `);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -2845,11 +2837,11 @@ app.get("/api/me", verifyJWT, async (req, res) => {
 app.put("/api/profile/update", verifyJWT, async (req, res) => {
   const { name, email, companyName, personalPhone, companyPhone } = req.body;
   // Log incoming data
-  log(`[PROFILE UPDATE] Request Body: ${ JSON.stringify(req.body) } `);
+  log(`[PROFILE UPDATE] Request Body: ${JSON.stringify(req.body)} `);
 
   try {
     const userId = req.userId;
-    log(`[PROFILE UPDATE] User ID extracted: ${ userId } `);
+    log(`[PROFILE UPDATE] User ID extracted: ${userId} `);
 
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
@@ -2864,11 +2856,11 @@ name = COALESCE($1, name),
       [name, email, personalPhone, companyPhone, userId],
     );
 
-    log(`[PROFILE UPDATE] Update Result: ${ result.rowCount } rows affected.`);
+    log(`[PROFILE UPDATE] Update Result: ${result.rowCount} rows affected.`);
     if (result.rowCount > 0) {
-      log(`[PROFILE UPDATE] New Data: ${ JSON.stringify(result.rows[0]) } `);
+      log(`[PROFILE UPDATE] New Data: ${JSON.stringify(result.rows[0])} `);
     } else {
-      log(`[PROFILE UPDATE]WARNING: No rows updated for user ${ userId }`);
+      log(`[PROFILE UPDATE]WARNING: No rows updated for user ${userId}`);
     }
 
     // Update Organization Name if provided
@@ -3038,7 +3030,7 @@ const checkPlanLimits = async (userId) => {
     if (count >= limit) {
       return {
         allowed: false,
-        message: `Limite de ${ limit } conex${ limit === 1 ? 'ão' : 'ões' } atingido.Compre mais conexões para adicionar.`,
+        message: `Limite de ${limit} conex${limit === 1 ? 'ão' : 'ões'} atingido.Compre mais conexões para adicionar.`,
       };
     }
 
@@ -3082,17 +3074,17 @@ const ensureUserInitialized = async (userId) => {
     let orgId = user.organization_id;
 
     if (!orgId) {
-      log(`[INIT] User ${ userId } has no Org.Creating one...`);
+      log(`[INIT] User ${userId} has no Org.Creating one...`);
       const orgRes = await pool.query(
         "INSERT INTO organizations (name) VALUES ($1) RETURNING id",
-        [`Org for ${ user.email }`],
+        [`Org for ${user.email}`],
       );
       orgId = orgRes.rows[0].id;
       await pool.query("UPDATE users SET organization_id = $1 WHERE id = $2", [
         orgId,
         userId,
       ]);
-      log(`[INIT] Created and assigned Org ${ orgId } to User ${ userId } `);
+      log(`[INIT] Created and assigned Org ${orgId} to User ${userId} `);
     }
 
     // 2. Check Columns
@@ -3102,7 +3094,7 @@ const ensureUserInitialized = async (userId) => {
     );
     if (colsRes.rows.length === 0) {
       log(
-        `[INIT] User ${ userId } (Org ${ orgId }) has no columns.Creating defaults...`,
+        `[INIT] User ${userId} (Org ${orgId}) has no columns.Creating defaults...`,
       );
       const defaultColumns = [
         {
@@ -3169,7 +3161,7 @@ const ensureUserInitialized = async (userId) => {
     }
   } catch (err) {
     log(
-      `[INIT ERROR] ensureUserInitialized failed for ${ userId }: ${ err.message } `,
+      `[INIT ERROR] ensureUserInitialized failed for ${userId}: ${err.message} `,
     );
   }
 };
@@ -3280,7 +3272,7 @@ app.get("/api/company-data", verifyJWT, async (req, res) => {
 // POST Agent
 app.post("/api/agents", verifyJWT, async (req, res) => {
   const { name, type, system_prompt, model_config } = req.body;
-  log(`[DEBUG] POST / api / agents entry.Body: ${ JSON.stringify(req.body) } `);
+  log(`[DEBUG] POST / api / agents entry.Body: ${JSON.stringify(req.body)} `);
 
   if (!name || !type) {
     return res.status(400).json({ error: "Name and type are required" });
@@ -3288,7 +3280,7 @@ app.post("/api/agents", verifyJWT, async (req, res) => {
 
   try {
     const userId = req.userId;
-    log(`[DEBUG] Authenticated User ID: ${ userId } `);
+    log(`[DEBUG] Authenticated User ID: ${userId} `);
 
     // Get Org ID
     const userRes = await pool.query(
@@ -3299,17 +3291,17 @@ app.post("/api/agents", verifyJWT, async (req, res) => {
 
     // Auto-create ORG if missing (for tests/new users)
     if (!orgId) {
-      log(`[DEBUG] User ${ userId } has no Org.Creating one...`);
+      log(`[DEBUG] User ${userId} has no Org.Creating one...`);
       const orgRes = await pool.query(
         "INSERT INTO organizations (name) VALUES ($1) RETURNING id",
-        [`Org for ${ userId }`],
+        [`Org for ${userId}`],
       );
       orgId = orgRes.rows[0].id;
       await pool.query("UPDATE users SET organization_id = $1 WHERE id = $2", [
         orgId,
         userId,
       ]);
-      log(`[DEBUG] Created and assigned Org ${ orgId } to User ${ userId } `);
+      log(`[DEBUG] Created and assigned Org ${orgId} to User ${userId} `);
     }
 
     const result = await pool.query(
@@ -3318,7 +3310,7 @@ VALUES($1, $2, $3, $4, $5) RETURNING * `,
       [orgId, name, type, system_prompt || "", model_config || {}],
     );
 
-    log(`[DEBUG] Agent created successfully: ${ result.rows[0].id } `);
+    log(`[DEBUG] Agent created successfully: ${result.rows[0].id} `);
     res.json(result.rows[0]);
   } catch (err) {
     log("[ERROR] POST /api/agents error: " + err.toString());
@@ -3329,13 +3321,13 @@ VALUES($1, $2, $3, $4, $5) RETURNING * `,
 // DELETE Agent
 app.delete("/api/agents/:id", verifyJWT, async (req, res) => {
   const { id } = req.params;
-  log(`[DEBUG] DELETE / api / agents /:id entry.ID: ${ id } `);
+  log(`[DEBUG] DELETE / api / agents /:id entry.ID: ${id} `);
 
   if (!id) return res.status(400).json({ error: "Agent ID is required" });
 
   try {
     const userId = req.userId;
-    log(`[DEBUG] DELETE / api / agents Authenticated User ID: ${ userId } `);
+    log(`[DEBUG] DELETE / api / agents Authenticated User ID: ${userId} `);
 
     // Get Org ID
     const userRes = await pool.query(
@@ -3348,20 +3340,20 @@ app.delete("/api/agents/:id", verifyJWT, async (req, res) => {
       return res.status(400).json({ error: "User has no organization" });
 
     // Delete agent only if it belongs to the user organization
-    log(`[DEBUG] Attempting to delete Agent ${ id } for Org ${ orgId }`);
+    log(`[DEBUG] Attempting to delete Agent ${id} for Org ${orgId}`);
     const result = await pool.query(
       "DELETE FROM agents WHERE id = $1 AND organization_id = $2 RETURNING *",
       [id, orgId],
     );
 
     if (result.rows.length === 0) {
-      log(`[DEBUG] Agent ${ id } not found or access denied for Org ${ orgId }`);
+      log(`[DEBUG] Agent ${id} not found or access denied for Org ${orgId}`);
       return res
         .status(404)
         .json({ error: "Agent not found or access denied" });
     }
 
-    log(`[DEBUG] Agent deleted successfully: ${ id } from Org ${ orgId } `);
+    log(`[DEBUG] Agent deleted successfully: ${id} from Org ${orgId} `);
     res.json({ success: true, message: "Agent deleted successfully" });
   } catch (err) {
     log("[ERROR] DELETE /api/agents error: " + err.toString());
@@ -3426,27 +3418,27 @@ app.put("/api/agents/:id", verifyJWT, async (req, res) => {
     let idx = 1;
 
     if (name) {
-      fields.push(`name = $${ idx++ } `);
+      fields.push(`name = $${idx++} `);
       values.push(name);
     }
     if (type) {
-      fields.push(`type = $${ idx++ } `);
+      fields.push(`type = $${idx++} `);
       values.push(type);
     }
     if (system_prompt !== undefined) {
-      fields.push(`system_prompt = $${ idx++ } `);
+      fields.push(`system_prompt = $${idx++} `);
       values.push(system_prompt);
     }
     if (model_config !== undefined) {
-      fields.push(`model_config = $${ idx++ } `);
+      fields.push(`model_config = $${idx++} `);
       values.push(model_config);
     }
     if (status) {
-      fields.push(`status = $${ idx++ } `);
+      fields.push(`status = $${idx++} `);
       values.push(status);
     }
     if (whatsapp_instance_id !== undefined) {
-      fields.push(`whatsapp_instance_id = $${ idx++ } `);
+      fields.push(`whatsapp_instance_id = $${idx++} `);
       values.push(whatsapp_instance_id);
     }
 
@@ -3458,10 +3450,10 @@ app.put("/api/agents/:id", verifyJWT, async (req, res) => {
     values.push(id);
     values.push(orgId);
 
-    const query = `UPDATE agents SET ${ fields.join(", ") } WHERE id = $${ idx++ } AND organization_id = $${ idx++ } RETURNING * `;
+    const query = `UPDATE agents SET ${fields.join(", ")} WHERE id = $${idx++} AND organization_id = $${idx++} RETURNING * `;
 
     const result = await pool.query(query, values);
-    log(`[DEBUG] Agent updated: ${ id } `);
+    log(`[DEBUG] Agent updated: ${id} `);
     res.json(result.rows[0]);
   } catch (err) {
     log("[ERROR] PUT /api/agents error: " + err.toString());
@@ -3520,7 +3512,7 @@ app.post(
         [JSON.stringify(updatedFiles), id],
       );
 
-      log(`[DEBUG] Uploaded ${ req.files.length } files for Agent ${ id }`);
+      log(`[DEBUG] Uploaded ${req.files.length} files for Agent ${id}`);
       res.json({ success: true, files: updatedFiles, agent: result.rows[0] });
     } catch (err) {
       log("[ERROR] Upload error: " + err.toString());
@@ -3551,7 +3543,7 @@ app.post("/api/agents/:id/toggle-pause", verifyJWT, async (req, res) => {
       id,
     ]);
 
-    log(`[PAUSE] Agent ${ id } is now ${ newStatus } `);
+    log(`[PAUSE] Agent ${id} is now ${newStatus} `);
     res.json({ success: true, status: newStatus });
   } catch (err) {
     log("[ERROR] Toggle Agent Pause error: " + err.toString());
@@ -3590,7 +3582,7 @@ app.post("/api/chats/toggle-pause", verifyJWT, async (req, res) => {
     }
 
     log(
-      `[PAUSE] Chat ${ remoteJid } on agent ${ agentId } is now ${ newPausedState ? "PAUSED" : "ACTIVE" } `,
+      `[PAUSE] Chat ${remoteJid} on agent ${agentId} is now ${newPausedState ? "PAUSED" : "ACTIVE"} `,
     );
     res.json({ success: true, isPaused: newPausedState });
   } catch (err) {
@@ -3680,7 +3672,7 @@ app.post("/chat/findChats/:instanceName", async (req, res) => {
   }
   try {
     const response = await fetch(
-      `${ evolutionUrl } /chat/findChats / ${ instanceName } `,
+      `${evolutionUrl} /chat/findChats / ${instanceName} `,
       {
         method: "POST",
         headers: {
@@ -3708,7 +3700,7 @@ app.post("/chat/findMessages/:instanceName", async (req, res) => {
   }
   try {
     const response = await fetch(
-      `${ evolutionUrl } /chat/findMessages / ${ instanceName } `,
+      `${evolutionUrl} /chat/findMessages / ${instanceName} `,
       {
         method: "POST",
         headers: {
@@ -3857,7 +3849,7 @@ app.put("/api/leads/:id", verifyJWT, async (req, res) => {
 app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
   const { instanceLabel } = req.body;
   log(
-    `WhatsApp connect request for UserID: ${ req.userId } [Label: ${ instanceLabel || "Default"}]`,
+    `WhatsApp connect request for UserID: ${req.userId} [Label: ${instanceLabel || "Default"}]`,
   );
 
   if (!(await checkDb())) {
@@ -3888,10 +3880,10 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         .trim()
         .replace(/[^a-zA-Z0-9]/g, "")
         .toLowerCase();
-      instanceName = `${ emailSanitized }_${ labelSanitized } `;
+      instanceName = `${emailSanitized}_${labelSanitized} `;
     }
 
-    log(`Target Instance Name: ${ instanceName } `);
+    log(`Target Instance Name: ${instanceName} `);
 
     // Check if THIS specific instance already exists
     const existingInstanceRes = await pool.query(
@@ -3913,7 +3905,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     // ... Existing Logic for "Instance exists" ...
     if (existingInstance) {
       const instance = existingInstance;
-      log(`Instance already exists: ${ instance.status } `);
+      log(`Instance already exists: ${instance.status} `);
 
       if (instance.status === "CONNECTED") {
         return res.json({
@@ -3924,7 +3916,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       }
 
       // Instance exists but is DISCONNECTED -> Try to get QR Code again
-      log(`Instance ${ instanceName } is disconnected.Fetching new QR Code...`);
+      log(`Instance ${instanceName} is disconnected.Fetching new QR Code...`);
 
       const evolutionApiUrl =
         process.env.EVOLUTION_API_URL || "https://evo.kogna.co";
@@ -3933,7 +3925,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       // 1. Check actual status on Evolution API first
       try {
         const statusResponse = await fetch(
-          `${ evolutionApiUrl } /instance/connectionState / ${ instanceName } `,
+          `${evolutionApiUrl} /instance/connectionState / ${instanceName} `,
           {
             method: "GET",
             headers: { apikey: evolutionApiKey },
@@ -3955,7 +3947,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
             );
             instance.status = "CONNECTED";
             log(
-              `Instance ${ instanceName } was found connected on Evolution.Updated local DB.`,
+              `Instance ${instanceName} was found connected on Evolution.Updated local DB.`,
             );
             return res.json({
               exists: true,
@@ -3965,14 +3957,14 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         }
       } catch (err) {
         log(
-          `Failed to check connection state for existing instance: ${ err.message } `,
+          `Failed to check connection state for existing instance: ${err.message} `,
         );
       }
 
       // 2. If not connected, try to fetch new QR Code
       try {
         const qrResponse = await fetch(
-          `${ evolutionApiUrl } /instance/connect / ${ instanceName } `,
+          `${evolutionApiUrl} /instance/connect / ${instanceName} `,
           {
             method: "GET",
             headers: { apikey: evolutionApiKey },
@@ -3992,7 +3984,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
             );
             instance.status = "CONNECTED";
             log(
-              `Instance ${ instanceName } connect call returned no QR(likely connected).Updated local DB.`,
+              `Instance ${instanceName} connect call returned no QR(likely connected).Updated local DB.`,
             );
             return res.json({
               exists: true,
@@ -4008,7 +4000,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
           });
         }
       } catch (e) {
-        log(`Error fetching QR for existing instance: ${ e.message }.`);
+        log(`Error fetching QR for existing instance: ${e.message}.`);
       }
     }
 
@@ -4030,9 +4022,9 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       groupsIgnore: true, // Try camelCase
     };
 
-    log(`Creating instance in Evolution API: ${ instanceName } `);
+    log(`Creating instance in Evolution API: ${instanceName} `);
 
-    let evolutionResponse = await fetch(`${ evolutionApiUrl } /instance/create`, {
+    let evolutionResponse = await fetch(`${evolutionApiUrl} /instance/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -4048,19 +4040,19 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         (errorText.includes("already") || errorText.includes("Forbidden"))
       ) {
         log(
-          `Instance ${ instanceName } is stuck(Zombie).Force deleting to clean up...`,
+          `Instance ${instanceName} is stuck(Zombie).Force deleting to clean up...`,
         );
-        await fetch(`${ evolutionApiUrl } /instance/logout / ${ instanceName } `, {
+        await fetch(`${evolutionApiUrl} /instance/logout / ${instanceName} `, {
           method: "DELETE",
           headers: { apikey: evolutionApiKey },
         });
-        await fetch(`${ evolutionApiUrl } /instance/delete / ${ instanceName } `, {
+        await fetch(`${evolutionApiUrl} /instance/delete / ${instanceName} `, {
           method: "DELETE",
           headers: { apikey: evolutionApiKey },
         });
 
         // Retry create
-        evolutionResponse = await fetch(`${ evolutionApiUrl } /instance/create`, {
+        evolutionResponse = await fetch(`${evolutionApiUrl} /instance/create`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -4073,13 +4065,13 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
 
     if (!evolutionResponse.ok) {
       const finalError = await evolutionResponse.text();
-      throw new Error(`Failed to create instance: ${ finalError } `);
+      throw new Error(`Failed to create instance: ${finalError} `);
     }
 
     const evolutionData = await evolutionResponse.json();
 
     // 2. Configure Webhook
-    await fetch(`${ evolutionApiUrl } /webhook/set / ${ instanceName } `, {
+    await fetch(`${evolutionApiUrl} /webhook/set / ${instanceName} `, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: evolutionApiKey },
       body: JSON.stringify({
@@ -4106,7 +4098,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     };
 
     const settingsRes = await fetch(
-      `${ evolutionApiUrl } /settings/set / ${ instanceName } `,
+      `${evolutionApiUrl} /settings/set / ${instanceName} `,
       {
         method: "POST",
         headers: {
@@ -4118,16 +4110,16 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     );
 
     if (settingsRes.ok) {
-      log(`Settings configured for ${ instanceName }: Ignore Groups ENABLED`);
+      log(`Settings configured for ${instanceName}: Ignore Groups ENABLED`);
     } else {
       log(
-        `WARNING: Failed to set settings for ${ instanceName }: ${ await settingsRes.text() } `,
+        `WARNING: Failed to set settings for ${instanceName}: ${await settingsRes.text()} `,
       );
     }
 
     // 4. Get QR
     const qrResponse = await fetch(
-      `${ evolutionApiUrl } /instance/connect / ${ instanceName } `,
+      `${evolutionApiUrl} /instance/connect / ${instanceName} `,
       {
         method: "GET",
         headers: { apikey: evolutionApiKey },
@@ -4184,7 +4176,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
   // Log received webhook (truncated for safety)
   const logBody = { ...req.body };
   if (logBody.data) logBody.data = "[TRUNCATED]";
-  log(`Webhook received: ${ JSON.stringify(logBody) } `);
+  log(`Webhook received: ${JSON.stringify(logBody)} `);
 
   try {
     // Handle CONNECTION_UPDATE event
@@ -4195,20 +4187,20 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       const instanceName = event.instance;
       const state = event.data?.state || event.state;
 
-      log(`Connection update for ${ instanceName }: ${ state } `);
+      log(`Connection update for ${instanceName}: ${state} `);
 
       if (isConnectedState(state)) {
         await pool.query(
           "UPDATE whatsapp_instances SET status = $1 WHERE instance_name = $2",
           ["CONNECTED", instanceName],
         );
-        log(`Instance ${ instanceName } marked as CONNECTED`);
+        log(`Instance ${instanceName} marked as CONNECTED`);
       } else if (state === "close" || state === "DISCONNECTED") {
         await pool.query(
           "UPDATE whatsapp_instances SET status = $1 WHERE instance_name = $2",
           ["DISCONNECTED", instanceName],
         );
-        log(`Instance ${ instanceName } marked as DISCONNECTED`);
+        log(`Instance ${instanceName} marked as DISCONNECTED`);
       }
     }
 
@@ -4235,7 +4227,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       const instance = instanceRes.rows[0];
 
       if (!instance) {
-        log(`[AI] Instance ${ instanceName } not found in DB.`);
+        log(`[AI] Instance ${instanceName} not found in DB.`);
         return res.json({ success: false, error: "Instance not found" });
       }
 
@@ -4246,7 +4238,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       const agent = agentRes.rows[0];
 
       if (!agent) {
-        log(`[AI] No agent configured for instance ${ instanceName }`);
+        log(`[AI] No agent configured for instance ${instanceName}`);
         return res.json({ success: true });
       }
 
@@ -4258,7 +4250,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
 
       const messageType = message?.messageType || Object.keys(message)[0];
       log(
-        `[DEBUG] Message Type: ${ messageType } (Keys: ${ Object.keys(message)})`,
+        `[DEBUG] Message Type: ${messageType} (Keys: ${Object.keys(message)})`,
       );
 
       // Explicitly check for message types to be safe
@@ -4269,7 +4261,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
 
       // 1. AUDIO HANDLING (HEARING)
       if (isAudioMessage) {
-        log(`[AI] Audio message detected from ${ remoteJid } `);
+        log(`[AI] Audio message detected from ${remoteJid} `);
         isAudioInput = true;
 
         let tempFilePath = null;
@@ -4284,7 +4276,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
               audioBuffer = Buffer.from(cleanBase64, "base64");
             } catch (e) {
               log(
-                `[AI] Failed to convert audio base64 to buffer: ${ e.message } `,
+                `[AI] Failed to convert audio base64 to buffer: ${e.message} `,
               );
             }
           }
@@ -4296,7 +4288,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
               if (response.ok) {
                 audioBuffer = await response.arrayBuffer();
               } else {
-                log(`[AI] Failed to fetch audio URL: ${ response.statusText } `);
+                log(`[AI] Failed to fetch audio URL: ${response.statusText} `);
               }
             }
           }
@@ -4312,11 +4304,11 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
             if (mimeType.includes("wav")) extension = "wav";
 
             log(
-              `[AI] Audio MimeType: ${ mimeType }, formatting as .${ extension } `,
+              `[AI] Audio MimeType: ${mimeType}, formatting as .${extension} `,
             );
 
             // Write to temp file to ensure correct format handling by OpenAI
-            const tempFileName = `audio_${ Date.now() }.${ extension } `;
+            const tempFileName = `audio_${Date.now()}.${extension} `;
             tempFilePath = path.join(__dirname, tempFileName);
             fs.writeFileSync(tempFilePath, Buffer.from(audioBuffer));
 
@@ -4333,7 +4325,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
             return res.json({ success: true });
           }
         } catch (transcribeError) {
-          log(`[AI] Transcription failed: ${ transcribeError.message } `);
+          log(`[AI] Transcription failed: ${transcribeError.message} `);
           return res.json({ success: true, error: "Transcription failed" });
         } finally {
           if (tempFilePath && fs.existsSync(tempFilePath)) {
@@ -4343,7 +4335,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       }
       // 2. VISION HANDLING (SEEING)
       else if (isImageMessage) {
-        log(`[AI] Image message detected from ${ remoteJid } `);
+        log(`[AI] Image message detected from ${remoteJid} `);
 
         const caption = message?.imageMessage?.caption || "";
         finalUserText =
@@ -4362,13 +4354,13 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
           let mimeType = message?.imageMessage?.mimetype || "image/jpeg";
           mimeType = mimeType.split(";")[0].trim();
 
-          imageUrl = `data:${ mimeType }; base64, ${ cleanBase64 } `;
+          imageUrl = `data:${mimeType}; base64, ${cleanBase64} `;
           log(
-            `[AI] Image prepared.MimeType: ${ mimeType }, Base64 length: ${ cleanBase64.length }, Starts with: ${ cleanBase64.substring(0, 30) }...`,
+            `[AI] Image prepared.MimeType: ${mimeType}, Base64 length: ${cleanBase64.length}, Starts with: ${cleanBase64.substring(0, 30)}...`,
           );
         } else if (mediaUrl) {
           imageUrl = mediaUrl;
-          log(`[AI] Using image URL: ${ mediaUrl.substring(0, 80) }...`);
+          log(`[AI] Using image URL: ${mediaUrl.substring(0, 80)}...`);
         }
 
         if (imageUrl) {
@@ -4413,7 +4405,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
         if (user) {
           if (user.koins_balance < reductionAmount) {
             log(
-              `[AI] Insufficient Koins for multimodal processing.Need ${ reductionAmount }, has ${ user.koins_balance }.`,
+              `[AI] Insufficient Koins for multimodal processing.Need ${reductionAmount}, has ${user.koins_balance}.`,
             );
             return res.json({ success: true }); // Stop processing
           }
@@ -4423,13 +4415,13 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
             [reductionAmount, user.id],
           );
           log(
-            `[KOINS] Deducted ${ reductionAmount } for Multimodal Input.Balance: ${ user.koins_balance - reductionAmount } `,
+            `[KOINS] Deducted ${reductionAmount} for Multimodal Input.Balance: ${user.koins_balance - reductionAmount} `,
           );
         }
       }
 
       log(
-        `[AI] Message received from ${ remoteJid } on instance ${ instanceName }: ${ finalUserText } ${ imageUrl ? "[+IMAGE]" : "" } `,
+        `[AI] Message received from ${remoteJid} on instance ${instanceName}: ${finalUserText} ${imageUrl ? "[+IMAGE]" : ""} `,
       );
 
       // 1. Find the Agent connected to this instance (Already done above)
@@ -4471,7 +4463,7 @@ VALUES($1, $2, $3, $4, $5, $6) RETURNING id`,
       const latestId = latestCheck.rows[0]?.id ? BigInt(latestCheck.rows[0].id) : null;
       if (!latestId || latestId !== bufferId) {
         // A newer message arrived — its handler will process everything
-        log(`[BUFFER] Message ${ bufferId } skipped — newer message ${ latestId } will handle the batch.`);
+        log(`[BUFFER] Message ${bufferId} skipped — newer message ${latestId} will handle the batch.`);
         return res.json({ success: true, status: 'waiting_for_batch' });
       }
 
@@ -4502,7 +4494,7 @@ VALUES($1, $2, $3, $4, $5, $6) RETURNING id`,
         isAudio: m.is_audio || false,
       }));
 
-      log(`[BUFFER] Processing batch of ${ inputMessages.length } message(s) for ${ remoteJid }`);
+      log(`[BUFFER] Processing batch of ${inputMessages.length} message(s) for ${remoteJid}`);
 
       // Process all buffered messages together in one AI call
       await processAIResponse(agent, remoteJid, instanceName, inputMessages);
@@ -4601,7 +4593,7 @@ app.get("/api/instances", verifyJWT, async (req, res) => {
 app.post("/api/repair-connection", verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
-    log(`[REPAIR] Request from user ${ userId } `);
+    log(`[REPAIR] Request from user ${userId} `);
 
     // 1. Get User & Org
     const userRes = await pool.query(
@@ -4620,13 +4612,13 @@ app.post("/api/repair-connection", verifyJWT, async (req, res) => {
       // Let's create one if missing, just like ensureUserInitialized
       const newOrg = await pool.query(
         "INSERT INTO organizations (name, plan_type) VALUES ($1, 'pro') RETURNING id",
-        [`Org of ${ user.email } `],
+        [`Org of ${user.email} `],
       );
       await pool.query("UPDATE users SET organization_id = $1 WHERE id = $2", [
         newOrg.rows[0].id,
         userId,
       ]);
-      log(`[REPAIR] Created missing org for user ${ userId }`);
+      log(`[REPAIR] Created missing org for user ${userId}`);
       return res.json({
         message: "Organization created. Refreshed.",
         fixed: true,
@@ -4640,23 +4632,23 @@ app.post("/api/repair-connection", verifyJWT, async (req, res) => {
     );
 
     if (result.rows.length > 0) {
-      log(`[REPAIR] Fixed ${ result.rows.length } instances for user ${ userId }`);
+      log(`[REPAIR] Fixed ${result.rows.length} instances for user ${userId}`);
       return res.json({
-        message: `Fixed ${ result.rows.length } connections.`,
+        message: `Fixed ${result.rows.length} connections.`,
         fixed: true,
       });
     }
 
     return res.json({ message: "No issues found.", fixed: false });
   } catch (e) {
-    log(`[REPAIR] Error: ${ e.message } `);
+    log(`[REPAIR] Error: ${e.message} `);
     res.status(500).json({ error: e.message });
   }
 });
 
 app.post("/api/instance", verifyJWT, async (req, res) => {
   const { instanceName, token, status } = req.body;
-  log(`POST / api / instance: ${ instanceName } `);
+  log(`POST / api / instance: ${instanceName} `);
 
   const userId = req.userId;
 
@@ -4702,7 +4694,7 @@ app.post("/api/instance", verifyJWT, async (req, res) => {
   try {
     // The instanceName is now derived from the user's email in /api/whatsapp/connect
     // This endpoint is more for manual creation/linking, so we'll use a generic name or the provided one.
-    const finalInstanceName = instanceName || `kogna_${ userId.substring(0, 8) } `;
+    const finalInstanceName = instanceName || `kogna_${userId.substring(0, 8)} `;
 
     // Ensure organization_id is passed. limits.orgId should have it.
     const orgIdToUse =
@@ -4736,7 +4728,7 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
     const { id } = req.params;
-    log(`[DELETE_INSTANCE] Request from user ${ userId } for instance ID ${ id } `);
+    log(`[DELETE_INSTANCE] Request from user ${userId} for instance ID ${id} `);
 
     // 1. Get instance details and verify ownership/org
     const userRes = await pool.query(
@@ -4744,7 +4736,7 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
       [userId],
     );
     const orgId = userRes.rows[0]?.organization_id;
-    log(`[DELETE_INSTANCE] User Org: ${ orgId } `);
+    log(`[DELETE_INSTANCE] User Org: ${orgId} `);
 
     const instanceRes = await pool.query(
       "SELECT * FROM whatsapp_instances WHERE id = $1",
@@ -4752,7 +4744,7 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
     );
 
     if (instanceRes.rows.length === 0) {
-      log(`[DELETE_INSTANCE] Instance ${ id } not found in database`);
+      log(`[DELETE_INSTANCE] Instance ${id} not found in database`);
       return res
         .status(404)
         .json({ error: "Conexão não encontrada no banco de dados" });
@@ -4761,13 +4753,13 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
     const instance = instanceRes.rows[0];
     const instanceName = instance.instance_name;
     log(
-      `[DELETE_INSTANCE] Found instance: ${ instanceName }, owner: ${ instance.user_id }, org: ${ instance.organization_id } `,
+      `[DELETE_INSTANCE] Found instance: ${instanceName}, owner: ${instance.user_id}, org: ${instance.organization_id} `,
     );
 
     // Verify ownership
     if (instance.user_id !== userId && instance.organization_id !== orgId) {
       log(
-        `[DELETE_INSTANCE] Access denied for user ${ userId } to instance ${ id } `,
+        `[DELETE_INSTANCE] Access denied for user ${userId} to instance ${id} `,
       );
       return res
         .status(403)
@@ -4780,34 +4772,34 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
     const evolutionApiKey = process.env.EVOLUTION_API_KEY || "";
 
     try {
-      log(`[DELETE_INSTANCE] Calling Evolution logout for: ${ instanceName } `);
+      log(`[DELETE_INSTANCE] Calling Evolution logout for: ${instanceName} `);
       const logoutRes = await fetch(
-        `${ evolutionApiUrl } /instance/logout / ${ instanceName } `,
+        `${evolutionApiUrl} /instance/logout / ${instanceName} `,
         { method: "DELETE", headers: { apikey: evolutionApiKey } }
       );
       const logoutBody = await logoutRes.text().catch(() => "(no body)");
-      log(`[DELETE_INSTANCE] Evolution logout ${ instanceName }: ${ logoutRes.status } — ${ logoutBody } `);
+      log(`[DELETE_INSTANCE] Evolution logout ${instanceName}: ${logoutRes.status} — ${logoutBody} `);
     } catch (evoErr) {
-      log(`[DELETE_INSTANCE] Evolution logout error for ${ instanceName }: ${ evoErr.message } `);
+      log(`[DELETE_INSTANCE] Evolution logout error for ${instanceName}: ${evoErr.message} `);
     }
 
     try {
-      log(`[DELETE_INSTANCE] Calling Evolution delete for: ${ instanceName } `);
+      log(`[DELETE_INSTANCE] Calling Evolution delete for: ${instanceName} `);
       const deleteRes = await fetch(
-        `${ evolutionApiUrl } /instance/delete / ${ instanceName } `,
+        `${evolutionApiUrl} /instance/delete / ${instanceName} `,
         { method: "DELETE", headers: { apikey: evolutionApiKey } }
       );
       const deleteBody = await deleteRes.text().catch(() => "(no body)");
-      log(`[DELETE_INSTANCE] Evolution delete ${ instanceName }: ${ deleteRes.status } — ${ deleteBody } `);
+      log(`[DELETE_INSTANCE] Evolution delete ${instanceName}: ${deleteRes.status} — ${deleteBody} `);
     } catch (evoErr) {
-      log(`[DELETE_INSTANCE] Evolution delete error for ${ instanceName }: ${ evoErr.message } `);
+      log(`[DELETE_INSTANCE] Evolution delete error for ${instanceName}: ${evoErr.message} `);
     }
 
     // 3. Remove from database
     await pool.query("DELETE FROM whatsapp_instances WHERE id = $1", [id]);
 
     log(
-      `[DELETE_INSTANCE] User ${ userId } disconnected instance ${ instanceName } (${ id })`,
+      `[DELETE_INSTANCE] User ${userId} disconnected instance ${instanceName} (${id})`,
     );
     res.json({ success: true, message: "Conexão removida com sucesso" });
   } catch (err) {
@@ -4834,102 +4826,102 @@ const proxyToEvolution = async (req, res, endpoint) => {
   const evolutionApiKey = process.env.EVOLUTION_API_KEY || "";
 
   // Construct full URL: https://evo.kogna.co/chat/findChats/instanceName
-  const targetUrl = `${ evolutionApiUrl }${ endpoint }/${instance}`;
+  const targetUrl = `${evolutionApiUrl}${endpoint}/${instance}`;
 
-log(`Proxying ${method} to ${targetUrl}`);
-const requestId = Math.random().toString(36).substring(7);
-log(`[${requestId}] ENTERING proxyToEvolution for ${endpoint}`);
+  log(`Proxying ${method} to ${targetUrl}`);
+  const requestId = Math.random().toString(36).substring(7);
+  log(`[${requestId}] ENTERING proxyToEvolution for ${endpoint}`);
 
-try {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
-  const response = await fetch(targetUrl, {
-    method: method,
-    headers: {
-      "Content-Type": "application/json",
-      apikey: evolutionApiKey,
-    },
-    body: method !== "GET" ? JSON.stringify(body) : undefined,
-    signal: controller.signal,
-  });
-  clearTimeout(timeoutId);
-  log(`[${requestId}] FETCH COMPLETED with status ${response.status}`);
+    const response = await fetch(targetUrl, {
+      method: method,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: evolutionApiKey,
+      },
+      body: method !== "GET" ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    log(`[${requestId}] FETCH COMPLETED with status ${response.status}`);
 
-  // Ensure we handle non-JSON responses gracefully (though Evolution usually returns JSON)
-  const contentType = response.headers.get("content-type");
-  log(
-    `DEBUG: Got response from ${endpoint}, status: ${response.status}, type: ${contentType}`,
-  );
-
-  let data;
-  if (contentType && contentType.includes("application/json")) {
-    data = await response.json();
-  } else {
-    data = await response.text();
-  }
-
-  log(`DEBUG: Parsed response body for ${endpoint}`);
-
-  if (!response.ok) {
+    // Ensure we handle non-JSON responses gracefully (though Evolution usually returns JSON)
+    const contentType = response.headers.get("content-type");
     log(
-      `Proxy error from Evolution: ${response.status} - ${JSON.stringify(data)}`,
+      `DEBUG: Got response from ${endpoint}, status: ${response.status}, type: ${contentType}`,
     );
-    return res
-      .status(response.status)
-      .json({ error: "Evolution API Error", details: data });
-  }
 
-  if (endpoint.includes("findChats")) {
-    log(`DEBUG findChats response keys: ${Object.keys(data)}`);
-    if (Array.isArray(data)) {
-      log(`DEBUG findChats first item: ${JSON.stringify(data[0])}`);
-    } else if (data.result && Array.isArray(data.result)) {
-      log(
-        `DEBUG findChats first item (in result): ${JSON.stringify(data.result[0])}`,
-      );
+    let data;
+    if (contentType && contentType.includes("application/json")) {
+      data = await response.json();
     } else {
-      log(
-        `DEBUG findChats structure unknown: ${JSON.stringify(data).substring(0, 200)}...`,
-      );
+      data = await response.text();
     }
-  }
 
-  if (endpoint.includes("findMessages")) {
-    log(`DEBUG findMessages response keys: ${Object.keys(data)}`);
-    if (Array.isArray(data)) {
-      log(`DEBUG findMessages (Array) length: ${data.length}`);
-      if (data.length > 0)
-        log(`DEBUG findMessages first item: ${JSON.stringify(data[0])}`);
-    } else if (data.messages && Array.isArray(data.messages)) {
+    log(`DEBUG: Parsed response body for ${endpoint}`);
+
+    if (!response.ok) {
       log(
-        `DEBUG findMessages (data.messages) length: ${data.messages.length}`,
+        `Proxy error from Evolution: ${response.status} - ${JSON.stringify(data)}`,
       );
-      if (data.messages.length > 0)
-        log(
-          `DEBUG findMessages first item: ${JSON.stringify(data.messages[0])}`,
-        );
-    } else if (data.result && Array.isArray(data.result)) {
-      // Some versions use result
-      log(`DEBUG findMessages (data.result) length: ${data.result.length}`);
-      if (data.result.length > 0)
-        log(
-          `DEBUG findMessages first item: ${JSON.stringify(data.result[0])}`,
-        );
-    } else {
-      log(
-        `DEBUG findMessages structure unknown: ${JSON.stringify(data).substring(0, 500)}...`,
-      );
+      return res
+        .status(response.status)
+        .json({ error: "Evolution API Error", details: data });
     }
-  }
 
-  res.json(data);
-} catch (error) {
-  log(`Proxy Server Error: ${error.message}`);
-  res
-    .status(500)
-    .json({ error: "Internal Server Error (Proxy)", details: error.message });
-}
+    if (endpoint.includes("findChats")) {
+      log(`DEBUG findChats response keys: ${Object.keys(data)}`);
+      if (Array.isArray(data)) {
+        log(`DEBUG findChats first item: ${JSON.stringify(data[0])}`);
+      } else if (data.result && Array.isArray(data.result)) {
+        log(
+          `DEBUG findChats first item (in result): ${JSON.stringify(data.result[0])}`,
+        );
+      } else {
+        log(
+          `DEBUG findChats structure unknown: ${JSON.stringify(data).substring(0, 200)}...`,
+        );
+      }
+    }
+
+    if (endpoint.includes("findMessages")) {
+      log(`DEBUG findMessages response keys: ${Object.keys(data)}`);
+      if (Array.isArray(data)) {
+        log(`DEBUG findMessages (Array) length: ${data.length}`);
+        if (data.length > 0)
+          log(`DEBUG findMessages first item: ${JSON.stringify(data[0])}`);
+      } else if (data.messages && Array.isArray(data.messages)) {
+        log(
+          `DEBUG findMessages (data.messages) length: ${data.messages.length}`,
+        );
+        if (data.messages.length > 0)
+          log(
+            `DEBUG findMessages first item: ${JSON.stringify(data.messages[0])}`,
+          );
+      } else if (data.result && Array.isArray(data.result)) {
+        // Some versions use result
+        log(`DEBUG findMessages (data.result) length: ${data.result.length}`);
+        if (data.result.length > 0)
+          log(
+            `DEBUG findMessages first item: ${JSON.stringify(data.result[0])}`,
+          );
+      } else {
+        log(
+          `DEBUG findMessages structure unknown: ${JSON.stringify(data).substring(0, 500)}...`,
+        );
+      }
+    }
+
+    res.json(data);
+  } catch (error) {
+    log(`Proxy Server Error: ${error.message}`);
+    res
+      .status(500)
+      .json({ error: "Internal Server Error (Proxy)", details: error.message });
+  }
 };
 
 // 1. Fetch Chats
