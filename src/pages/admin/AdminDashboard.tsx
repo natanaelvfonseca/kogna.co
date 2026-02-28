@@ -1,32 +1,20 @@
 
 import { useState, useEffect } from 'react';
 import {
-    TrendingUp,
-    CreditCard,
     Search,
     Edit2,
     Filter,
-    DollarSign,
     UserPlus,
     X,
-    Trash2
+    Trash2,
+    CalendarDays
 } from 'lucide-react';
-import {
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    Cell
-} from 'recharts';
 import { useAuth } from '../../context/AuthContext';
+import { OverviewTab } from './dashboard/OverviewTab';
+import { ProductsTab } from './dashboard/ProductsTab';
+import { AdsTab } from './dashboard/AdsTab';
 
-interface AdminStats {
-    mrr: number;
-    chartData: Array<{ month: string; revenue: number }>;
-}
+
 
 interface AdminUser {
     id: string;
@@ -49,10 +37,10 @@ interface ConsumptionLog {
 
 export function AdminDashboard() {
     const { token } = useAuth();
-    const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'consumption'>('overview');
-    const [stats, setStats] = useState<AdminStats | null>(null);
+    const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'ads' | 'users'>('overview');
+    const [period, setPeriod] = useState<string>('30d');
+    const [strategicData, setStrategicData] = useState<any>(null);
     const [users, setUsers] = useState<AdminUser[]>([]);
-    const [consumption, setConsumption] = useState<ConsumptionLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -64,25 +52,21 @@ export function AdminDashboard() {
 
     useEffect(() => {
         fetchData();
-    }, [activeTab]);
+    }, [activeTab, period]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
             const headers = { 'Authorization': `Bearer ${token}` };
 
-            if (activeTab === 'overview') {
-                const res = await fetch(`${apiBase}/api/admin/stats`, { headers });
+            if (activeTab === 'overview' || activeTab === 'products' || activeTab === 'ads') {
+                const res = await fetch(`${apiBase}/api/admin/strategic-metrics?period=${period}`, { headers });
                 const data = await res.json();
-                setStats(data);
+                setStrategicData(data);
             } else if (activeTab === 'users') {
                 const res = await fetch(`${apiBase}/api/admin/users`, { headers });
                 const data = await res.json();
                 setUsers(Array.isArray(data) ? data : []);
-            } else if (activeTab === 'consumption') {
-                const res = await fetch(`${apiBase}/api/admin/consumption`, { headers });
-                const data = await res.json();
-                setConsumption(Array.isArray(data) ? data : []);
             }
         } catch (error) {
             console.error('Error fetching admin data:', error);
@@ -183,27 +167,53 @@ export function AdminDashboard() {
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Header and Global Controls */}
+            <div className="flex flex-col xl:flex-row gap-6 justify-between items-start xl:items-center bg-card/50 border border-purple-500/20 p-5 rounded-2xl shadow-lg shadow-purple-500/5">
                 <div>
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-[#7C3AED] via-[#D4AF37] to-[#7C3AED] bg-size-200 animate-gradient-x bg-clip-text text-transparent">
-                        Painel de Gestão da Plataforma
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-[#7C3AED] via-[#D4AF37] to-[#7C3AED] bg-size-200 animate-gradient-x bg-clip-text text-transparent mb-2">
+                        Painel Executivo C-Level
                     </h1>
-                    <p className="text-muted-foreground">Visão geral do ecossistema Kogna</p>
+                    <p className="text-muted-foreground">Monitoramento financeiro, produtos e ecossistema</p>
                 </div>
-                <div className="flex bg-card/50 border border-purple-500/20 rounded-lg p-1">
-                    {(['overview', 'users', 'consumption'] as const).map((tab) => (
-                        <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`px-4 py-2 rounded-md capitalize transition-all duration-300 ${activeTab === tab
-                                ? 'bg-gradient-to-r from-purple-600 to-amber-600 text-white shadow-lg shadow-purple-500/20'
-                                : 'text-muted-foreground hover:text-foreground'
-                                }`}
-                        >
-                            {tab === 'overview' ? 'Visão Geral' : tab === 'users' ? 'Clientes' : 'Consumo API'}
-                        </button>
-                    ))}
+
+                <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto">
+                    {/* Period Filter */}
+                    {(activeTab !== 'users') && (
+                        <div className="flex items-center gap-2 bg-background border border-purple-500/20 rounded-lg px-3 py-1 shadow-sm shrink-0">
+                            <CalendarDays className="w-4 h-4 text-purple-500" />
+                            <select
+                                value={period}
+                                onChange={(e) => setPeriod(e.target.value)}
+                                className="bg-transparent text-sm font-medium border-none outline-none focus:ring-0 cursor-pointer min-w-[140px]"
+                            >
+                                <option value="today">Hoje</option>
+                                <option value="7d">Últimos 7 dias</option>
+                                <option value="30d">Últimos 30 dias</option>
+                                <option value="this_month">Este Mês</option>
+                                <option value="last_month">Mês Anterior</option>
+                                <option value="this_year">Este Ano</option>
+                                <option value="all">Todo o Tempo</option>
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Navigation Tabs */}
+                    <div className="flex bg-background border border-purple-500/20 rounded-lg p-1 overflow-x-auto custom-scrollbar shadow-inner">
+                        {(['overview', 'products', 'ads', 'users'] as const).map((tab) => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`px-4 py-2 rounded-md capitalize transition-all duration-300 whitespace-nowrap text-sm font-medium ${activeTab === tab
+                                    ? 'bg-gradient-to-r from-purple-600 to-amber-600 text-white shadow-lg shadow-purple-500/20'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-purple-500/5'
+                                    }`}
+                            >
+                                {tab === 'overview' ? 'Visão Geral' :
+                                    tab === 'products' ? 'Produtos & Consumo' :
+                                        tab === 'ads' ? 'Aquisição (Ads)' : 'Gestão de Clientes'}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
@@ -213,81 +223,9 @@ export function AdminDashboard() {
                 </div>
             ) : (
                 <>
-                    {activeTab === 'overview' && (
-                        <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-                            {/* Stats Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <StatCard
-                                    title="MRR (Assinaturas)"
-                                    value={`R$ ${(stats?.mrr || 0).toLocaleString()}`}
-                                    icon={<DollarSign className="w-6 h-6 text-amber-500" />}
-                                    trend="+12% vs mês anterior"
-                                    color="from-purple-500/10 to-amber-500/10"
-                                />
-                                <StatCard
-                                    title="Total de Clientes"
-                                    value={users.length || "24"}
-                                    icon={<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-users w-6 h-6 text-purple-500"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
-                                    trend="+3 essa semana"
-                                    color="from-purple-500/10 to-blue-500/10"
-                                />
-                                <StatCard
-                                    title="Consumo de Koins"
-                                    value={(stats?.chartData?.reduce((acc, curr) => acc + curr.revenue, 0) || 0).toLocaleString()}
-                                    icon={<CreditCard className="w-6 h-6 text-amber-500" />}
-                                    trend="+22.4% vs ontem"
-                                    color="from-amber-500/10 to-orange-500/10"
-                                />
-                            </div>
-
-                            {/* Revenue Chart */}
-                            <div className="bg-card border border-purple-500/20 rounded-xl p-6 shadow-xl shadow-purple-500/5">
-                                <div className="flex items-center justify-between mb-8">
-                                    <div>
-                                        <h3 className="text-xl font-semibold">Faturamento (Assinaturas + Koins)</h3>
-                                        <p className="text-sm text-muted-foreground">Últimos 6 meses de operação</p>
-                                    </div>
-                                    <TrendingUp className="text-amber-500" />
-                                </div>
-                                <div className="h-[350px] w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={stats?.chartData || []}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
-                                            <XAxis
-                                                dataKey="month"
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: '#888', fontSize: 12 }}
-                                            />
-                                            <YAxis
-                                                axisLine={false}
-                                                tickLine={false}
-                                                tick={{ fill: '#888', fontSize: 12 }}
-                                                tickFormatter={(value) => `R$${value}`}
-                                            />
-                                            <Tooltip
-                                                cursor={{ fill: 'rgba(124, 58, 237, 0.1)' }}
-                                                contentStyle={{
-                                                    backgroundColor: '#111',
-                                                    borderColor: '#7C3AED',
-                                                    borderRadius: '8px',
-                                                    color: '#fff'
-                                                }}
-                                            />
-                                            <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                                                {(stats?.chartData || []).map((_, index) => (
-                                                    <Cell
-                                                        key={`cell-${index}`}
-                                                        fill={index % 2 === 0 ? '#7C3AED' : '#D4AF37'}
-                                                    />
-                                                ))}
-                                            </Bar>
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {activeTab === 'overview' && <OverviewTab data={strategicData} />}
+                    {activeTab === 'products' && <ProductsTab data={strategicData} />}
+                    {activeTab === 'ads' && <AdsTab data={strategicData} />}
 
                     {activeTab === 'users' && (
                         <div className="bg-card border border-purple-500/20 rounded-xl overflow-hidden shadow-xl animate-in slide-in-from-bottom-4 duration-500">
@@ -364,57 +302,7 @@ export function AdminDashboard() {
                         </div>
                     )}
 
-                    {activeTab === 'consumption' && (
-                        <div className="bg-card border border-purple-500/20 rounded-xl overflow-hidden shadow-xl animate-in slide-in-from-bottom-4 duration-500">
-                            <div className="p-6 border-b border-purple-500/20">
-                                <h3 className="text-xl font-semibold">Análise de Lucratividade (OpenAI vs Koins)</h3>
-                                <p className="text-sm text-muted-foreground text-amber-500 font-medium">Margem saudável: Taxa de consumo de Koins deve ser {'>'} Custo de API</p>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-muted/50 text-muted-foreground font-medium text-sm">
-                                        <tr>
-                                            <th className="px-6 py-4">Cliente</th>
-                                            <th className="px-6 py-4">Tokens (Input/Output)</th>
-                                            <th className="px-6 py-4">Custo API (USD)</th>
-                                            <th className="px-6 py-4">Koins Consumidos</th>
-                                            <th className="px-6 py-4">Relat. Eficiência</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-purple-500/10">
-                                        {consumption.map((log, i) => {
-                                            const profitRatio = (Number(log.estimated_koins_spent) / 100) / (Number(log.total_cost) || 0.001);
-                                            return (
-                                                <tr key={i} className="hover:bg-purple-500/5 transition-colors">
-                                                    <td className="px-6 py-4 font-medium">{log.user_name}</td>
-                                                    <td className="px-6 py-4 text-sm">
-                                                        {log.total_prompt_tokens?.toLocaleString()} / {log.total_completion_tokens?.toLocaleString()}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-red-500 font-mono">
-                                                        ${Number(log.total_cost || 0).toFixed(4)}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-amber-500 font-bold">
-                                                        {log.estimated_koins_spent?.toLocaleString()}
-                                                    </td>
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                                                                <div
-                                                                    className={`h-full ${profitRatio > 3 ? 'bg-green-500' : 'bg-amber-500'}`}
-                                                                    style={{ width: `${Math.min(profitRatio * 10, 100)}%` }}
-                                                                ></div>
-                                                            </div>
-                                                            <span className="text-xs font-bold font-mono">{profitRatio.toFixed(1)}x</span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    )}
+                    {/* Legacy consumption tab replaced entirely by ProductsTab, it's removed cleanly from the renderer */}
                 </>
             )}
 
@@ -509,27 +397,6 @@ export function AdminDashboard() {
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
-
-function StatCard({ title, value, icon, trend, color }: { title: string, value: string | number, icon: React.ReactNode, trend: string, color: string }) {
-    return (
-        <div className={`bg-card border border-purple-500/20 rounded-xl p-6 relative overflow-hidden group shadow-xl transition-all hover:scale-[1.02] duration-300 shadow-purple-500/5`}>
-            <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-20 group-hover:opacity-30 transition-opacity`} />
-            <div className="flex items-start justify-between relative z-10">
-                <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">{title}</p>
-                    <h2 className="text-3xl font-bold font-mono">{value}</h2>
-                    <p className="text-xs text-green-500 flex items-center gap-1 font-semibold">
-                        <TrendingUp className="w-3 h-3" />
-                        {trend}
-                    </p>
-                </div>
-                <div className="p-3 bg-card border border-purple-500/10 rounded-lg group-hover:bg-purple-500/10 transition-colors">
-                    {icon}
-                </div>
-            </div>
         </div>
     );
 }
