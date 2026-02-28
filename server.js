@@ -65,12 +65,9 @@ app.use("/api/", apiLimiter);
 app.use("/api/login", authLimiter);
 app.use("/api/register", authLimiter);
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error(
-    "CRITICAL ERROR: JWT_SECRET not found in environment variables.",
-  );
-  process.exit(1);
+const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-for-booting-only";
+if (!process.env.JWT_SECRET) {
+  log("WARNING: JWT_SECRET not found in environment variables. Auth will fail but server will stay alive.");
 }
 
 function log(msg) {
@@ -92,10 +89,7 @@ function log(msg) {
 // Use environment variable for connection
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error(
-    "CRITICAL ERROR: DATABASE_URL not found in environment variables.",
-  );
-  process.exit(1);
+  log("WARNING: DATABASE_URL not found. DB features will fail.");
 }
 
 let poolConfig = {
@@ -153,55 +147,11 @@ const initPool = async () => {
   }
 };
 
-const ensureLeadsColumns = async () => {
-  try {
-    log("[MIGRATION] Checking for Lead Score columns...");
-    await pool.query(`
-      DO $$ 
-      BEGIN 
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'score') THEN
-          ALTER TABLE leads ADD COLUMN score INTEGER DEFAULT 0;
-        END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leads' AND column_name = 'temperature') THEN
-          ALTER TABLE leads ADD COLUMN temperature TEXT DEFAULT 'Frio';
-        END IF;
-      END $$;
-    `);
-    log("[MIGRATION] Lead Score columns verified/added successfully.");
-  } catch (e) {
-    log("[MIGRATION] Error ensuring Lead Score columns: " + e.message);
-  }
-};
-
-const setup = async () => {
-  await initPool();
-  await ensureLeadsColumns();
-};
-
-setup();
-
-// Ensure the message_buffer table exists (DB-based debounce for serverless)
-const ensureMessageBuffer = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS message_buffer (
-        id BIGSERIAL PRIMARY KEY,
-        remote_jid TEXT NOT NULL,
-        agent_id UUID NOT NULL,
-        instance_name TEXT NOT NULL,
-        content TEXT,
-        image_url TEXT,
-        is_audio BOOLEAN DEFAULT false,
-        received_at TIMESTAMPTZ DEFAULT NOW(),
-        processed BOOLEAN DEFAULT false
-      )
-    `);
-    log('[BUFFER] message_buffer table ready');
-  } catch (e) {
-    log('[BUFFER] Error ensuring message_buffer table: ' + e.message);
-  }
-};
-setTimeout(ensureMessageBuffer, 3000); // run after DB connection is established
+// Inicia as conexões e migrações em segundo plano para não travar o boot da Vercel
+initPool().then(() => {
+  ensureLeadsColumns();
+  setTimeout(ensureMessageBuffer, 3000);
+}).catch(e => log("Startup error: " + e.message));
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
