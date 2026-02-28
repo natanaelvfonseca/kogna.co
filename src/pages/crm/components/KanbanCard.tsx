@@ -69,6 +69,15 @@ export function KanbanCard({ lead, onDragStart, onDelete, onEdit, onMarkAsClient
                                 {lead.source}
                             </p>
                         )}
+                        {lead.temperature && (
+                            <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold mt-1.5 border ${lead.temperature.includes('Quente') ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                                    lead.temperature.includes('Morno') ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' :
+                                        'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                }`}>
+                                <span>{lead.temperature}</span>
+                                {lead.score !== undefined && <span className="opacity-70">({lead.score}%)</span>}
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="flex gap-1">

@@ -62,6 +62,8 @@ export function LiveChat() {
 
     const [isChatPaused, setIsChatPaused] = useState(false);
     const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
+    const [activeLeadScore, setActiveLeadScore] = useState<number>(0);
+    const [activeLeadTemp, setActiveLeadTemp] = useState<string>("Frio");
 
 
 
@@ -78,9 +80,11 @@ export function LiveChat() {
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.found) {
+                    if (data.found || data.agentId) {
                         setCurrentAgentId(data.agentId);
-                        setIsChatPaused(data.isChatPaused);
+                        setIsChatPaused(data.isPaused);
+                        setActiveLeadScore(data.leadScore || 0);
+                        setActiveLeadTemp(data.leadTemperature || "Frio");
                     }
                 }
             } catch (err) {
@@ -927,6 +931,16 @@ export function LiveChat() {
 
                                 <div>
                                     <h2 className="text-gray-900 dark:text-white font-medium font-display">{getDisplayName(activeChat)}</h2>
+                                    {activeLeadTemp && (
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${activeLeadTemp.includes('Quente') ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                                                    activeLeadTemp.includes('Morno') ? 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' :
+                                                        'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                                                }`}>
+                                                {activeLeadTemp} {activeLeadScore > 0 ? `(${activeLeadScore}%)` : ''}
+                                            </span>
+                                        </div>
+                                    )}
                                     <span className="text-xs text-gray-500 dark:text-gray-400">online</span>
                                 </div>
                             </div>

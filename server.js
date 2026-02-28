@@ -356,7 +356,29 @@ app.get("/api/chat-context/:instanceName/:jid", verifyJWT, async (req, res) => {
       isPaused = sessionRes.rows[0]?.is_paused || false;
     }
 
-    res.json({ agentId, isPaused });
+    // 3. Find Lead Info
+    let leadScore = 0;
+    let leadTemperature = "Frio";
+    if (agentId) {
+      const orgRes = await pool.query(
+        "SELECT organization_id FROM agents WHERE id = $1",
+        [agentId],
+      );
+      const orgId = orgRes.rows[0]?.organization_id;
+
+      if (orgId) {
+        const leadRes = await pool.query(
+          "SELECT score, temperature FROM leads WHERE organization_id = $1 AND (phone LIKE $2 OR mobile_phone LIKE $2) LIMIT 1",
+          [orgId, `%${jid.split("@")[0]}%`],
+        );
+        if (leadRes.rows.length > 0) {
+          leadScore = leadRes.rows[0].score || 0;
+          leadTemperature = leadRes.rows[0].temperature || "Frio";
+        }
+      }
+    }
+
+    res.json({ agentId, isPaused, leadScore, leadTemperature });
   } catch (err) {
     log(`GET /api/chat-context error: ${err.message}`);
     res.status(500).json({ error: "Internal server error" });
@@ -4983,6 +5005,8 @@ app.get("/api/leads", verifyJWT, async (req, res) => {
       status: row.status,
       tags: row.tags || [],
       lastContact: row.last_contact, // mappings
+      score: row.score,
+      temperature: row.temperature,
       // created_at is available if needed
     }));
 
@@ -8336,6 +8360,61 @@ async function convertToAudio(text) {
   return filePath;
 }
 
+// --- LEAD SCORING SYSTEM ---
+async function updateLeadScore(agentId, remoteJid, organizationId, historyMessages) {
+  try {
+    // 1. Find Lead
+    const leadRes = await pool.query(
+      "SELECT id FROM leads WHERE organization_id = $1 AND (phone LIKE $2 OR mobile_phone LIKE $2) LIMIT 1",
+      [organizationId, `%${remoteJid.split("@")[0]}%`],
+    );
+    const leadId = leadRes.rows[0]?.id;
+
+    if (!leadId) {
+      log(`[LEAD-SCORING] No lead found for ${remoteJid} in organization ${organizationId}. Skipping score update.`);
+      return;
+    }
+
+    // 2. Prepare Context (Last 10 messages for efficiency)
+    const context = historyMessages
+      .slice(-10)
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n');
+
+    // 3. Request Analysis from AI
+    const scoringPrompt = `Analise a conversa abaixo e classifique o Lead.
+Responda APENAS um JSON válido.
+
+CAMPOS:
+- score: (0-100) baseada em intenção de compra e urgência.
+- temperature: "🔥 Quente", "🟡 Morno" ou "🔵 Frio".
+- reason: justificativa curta.
+
+CONVERSA:
+${context}
+
+JSON:`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "system", content: scoringPrompt }],
+      response_format: { type: "json_object" }
+    });
+
+    const result = JSON.parse(completion.choices[0].message.content);
+
+    // 4. Update Database
+    await pool.query(
+      "UPDATE leads SET score = $1, temperature = $2 WHERE id = $3",
+      [result.score, result.temperature, leadId]
+    );
+
+    log(`[LEAD-SCORING] Lead ${leadId} updated: ${result.temperature} (${result.score} pts) - ${result.reason}`);
+  } catch (err) {
+    log(`[LEAD-SCORING] Error: ${err.message}`);
+  }
+}
+
 async function processAIResponse(
   agent,
   remoteJid,
@@ -9128,6 +9207,13 @@ Se o cliente apresentar uma objeção, NUNCA discuta, NUNCA diminua o problema e
         user,
       );
     }
+
+    // 4. Update Lead Score (Async / Non-blocking)
+    if (user && user.organization_id) {
+      updateLeadScore(agent.id, remoteJid, user.organization_id, apiMessages)
+        .catch(err => log(`[LEAD-SCORE-TRIGGER] Error: ${err.message}`));
+    }
+
   } catch (error) {
     log(`[AI] Error generating / sending response: ${error.message} `);
   }
@@ -9900,3 +9986,4 @@ process.on("exit", (code) => {
     process.exit(0);
   });
 });
+

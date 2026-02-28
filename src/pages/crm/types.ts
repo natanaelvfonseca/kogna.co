@@ -12,6 +12,8 @@ export interface Lead {
     avatar?: string;
     tags?: string[];
     source?: string;
+    score?: number;
+    temperature?: string;
 }
 
 export interface KanbanColumn {
