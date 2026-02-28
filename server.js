@@ -570,6 +570,48 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/me:
+ *   get:
+ *     summary: Get current user profile and organization
+ *     tags: [Authentication]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile data
+ */
+app.get("/api/me", verifyJWT, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const userRes = await pool.query(
+      "SELECT id, email, name, organization_id, role, koins_balance FROM users WHERE id = $1",
+      [userId],
+    );
+    const user = userRes.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const orgRes = await pool.query(
+      "SELECT id, name, plan_type, whatsapp_connections_limit FROM organizations WHERE id = $1",
+      [user.organization_id],
+    );
+    const organization = orgRes.rows[0];
+
+    res.json({
+      user: { ...user, organization },
+      role: user.role,
+    });
+  } catch (err) {
+    log("Get /api/me error: " + err.toString());
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 // ==================== SWAGGER CONFIGURATION ====================
 import swaggerUi from "swagger-ui-express";
 import swaggerJsdoc from "swagger-jsdoc";

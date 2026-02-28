@@ -33,25 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        // Hydrate user from localStorage on mount
-        const storedToken = localStorage.getItem('kogna_token');
-        const storedUser = localStorage.getItem('kogna_user');
-
-
-        if (storedToken && storedUser) {
-            try {
-                setToken(storedToken);
-                setUser(JSON.parse(storedUser));
-            } catch (e) {
-                // Invalid stored data, clear it
-                localStorage.removeItem('kogna_token');
-                localStorage.removeItem('kogna_user');
-            }
-        }
-
-        setLoading(false);
-    }, []);
+    // Note: Hydration is now handled by refreshUser on mount
 
     const login = async (email: string, pass: string) => {
         try {
@@ -154,33 +136,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const refreshUser = async () => {
-        if (!token) return;
+        const storedToken = localStorage.getItem('kogna_token');
+        if (!storedToken) {
+            setLoading(false);
+            return;
+        }
+
         try {
-            // We need an endpoint to get current user data.
-            // Assuming GET /api/auth/me or similar exists, or we can use the login endpoint if it supports token-based auth
-            // But looking at server.js, we might not have a dedicated 'me' endpoint yet?
-            // Let's check server.js for a suitable endpoint to fetch user details.
-            // Wait, I should verify if such endpoint exists first.
-            // Actually, let's just implement a FETCH from /api/profile/me if it exists, or create it.
-            // For now, I will add the function signature but I need to be sure about the endpoint.
-
-            // Let's assume we can add a GET /api/profile/me or similar.
-            // Ideally, we should add GET /api/me to server.js as well.
-
             const apiBase = '';
             const res = await fetch(`${apiBase}/api/me`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                headers: { 'Authorization': `Bearer ${storedToken}` }
             });
 
             if (res.ok) {
                 const data = await res.json();
                 setUser(data.user);
+                setToken(storedToken);
                 localStorage.setItem('kogna_user', JSON.stringify(data.user));
+            } else if (res.status === 401) {
+                // Token invalid or expired, clear session
+                console.warn('Session expired or invalid token. Logging out...');
+                logout();
             }
         } catch (e) {
             console.error('Failed to refresh user', e);
+        } finally {
+            setLoading(false);
         }
     };
+
+    useEffect(() => {
+        refreshUser();
+    }, []);
 
     return (
         <AuthContext.Provider value={{ user, token, login, register, logout, refreshUser, isAuthenticated: !!token }}>
