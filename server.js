@@ -65,9 +65,9 @@ app.use("/api/", apiLimiter);
 app.use("/api/login", authLimiter);
 app.use("/api/register", authLimiter);
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-for-booting-only";
-if (!process.env.JWT_SECRET) {
-  log("WARNING: JWT_SECRET not found in environment variables. Auth will fail but server will stay alive.");
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  log("CRITICAL WARNING: JWT_SECRET not found in environment variables. All authentication will fail!");
 }
 
 function log(msg) {
@@ -193,12 +193,17 @@ const verifyJWT = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET || "invalid_fallback");
     req.userId = decoded.id;
     req.userRole = decoded.role;
     next();
   } catch (err) {
-    return res.status(401).json({ error: "Token inválido ou expirado" });
+    log(`[AUTH] JWT Verification failed: ${err.message} (Secret defined: ${!!JWT_SECRET})`);
+    return res.status(401).json({
+      error: "Token inválido ou expirado",
+      reason: err.message,
+      code: err.name
+    });
   }
 };
 
@@ -249,6 +254,20 @@ const evolutionProxy = async (req, res) => {
     res.status(500).json({ error: "Failed to proxy request to Evolution API" });
   }
 };
+
+// --- AUTH DIAGNOSTICS ---
+app.get("/api/auth-diag", (req, res) => {
+  res.json({
+    status: "ok",
+    env: {
+      hasJwtSecret: !!process.env.JWT_SECRET,
+      jwtSecretLength: process.env.JWT_SECRET ? process.env.JWT_SECRET.length : 0,
+      databaseUrlSet: !!process.env.DATABASE_URL,
+      nodeEnv: process.env.NODE_ENV,
+      vercel: process.env.VERCEL
+    }
+  });
+});
 
 app.use("/chat", evolutionProxy);
 app.use("/message", evolutionProxy);
