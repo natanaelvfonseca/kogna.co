@@ -215,7 +215,8 @@ export function WhatsAppConnection() {
                 </div>
                 <button
                     onClick={() => {
-                        if (instances.length >= 1) {
+                        const limit = user?.organization?.whatsapp_connections_limit || 1;
+                        if (instances.length >= limit) {
                             setShowLimitModal(true);
                         } else {
                             setShowNewConnectionModal(true);
@@ -289,7 +290,8 @@ export function WhatsAppConnection() {
                         </p>
                         <button
                             onClick={() => {
-                                if (instances.length >= 1) {
+                                const limit = user?.organization?.whatsapp_connections_limit || 1;
+                                if (instances.length >= limit) {
                                     setShowLimitModal(true);
                                 } else {
                                     setShowNewConnectionModal(true);

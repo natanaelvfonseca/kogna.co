@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Organization {
@@ -19,8 +18,8 @@ model Organization {
   products          Product[]
   users             User[]
   vendedores        Vendedor[]
-  whatsappInstances WhatsAppInstance[]
-
+  whatsappInstances        WhatsAppInstance[]
+  whatsappConnectionsLimit Int                @default(1) @map("whatsapp_connections_limit")
   @@map("organizations")
 }
 
@@ -326,7 +325,9 @@ model Product {
   organizationId String?       @map("organization_id")
   leads          Lead[]
   organization   Organization? @relation(fields: [organizationId], references: [id])
-  koinsBonus     Int           @default(0) @map("koins_bonus")
+  koinsBonus       Int           @default(0) @map("koins_bonus")
+  connectionsBonus Int           @default(0) @map("connections_bonus")
+  type             String        @default("KOINS")
 
   @@map("products")
 }

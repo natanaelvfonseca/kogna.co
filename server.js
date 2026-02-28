@@ -527,7 +527,7 @@ app.post("/api/login", async (req, res) => {
 
     // Fetch organization details to return
     const orgRes = await pool.query(
-      "SELECT * FROM organizations WHERE id = $1",
+      "SELECT id, name, plan_type, whatsapp_connections_limit FROM organizations WHERE id = $1",
       [user.organization_id],
     );
     const organization = orgRes.rows[0];
@@ -2875,25 +2875,27 @@ const checkPlanLimits = async (userId) => {
     if (!orgId) return { allowed: true }; // No org? Allow for now or block.
 
     const orgRes = await pool.query(
-      "SELECT plan_type FROM organizations WHERE id = $1",
+      "SELECT plan_type, whatsapp_connections_limit FROM organizations WHERE id = $1",
       [orgId],
     );
     const plan = orgRes.rows[0]?.plan_type || "basic";
+    const limit = orgRes.rows[0]?.whatsapp_connections_limit || 1;
 
-    if (plan === "basic") {
-      const countRes = await pool.query(
-        "SELECT COUNT(*) FROM whatsapp_instances WHERE organization_id = $1",
-        [orgId],
-      );
-      const count = parseInt(countRes.rows[0].count);
-      if (count >= 1) {
-        return {
-          allowed: false,
-          message:
-            "Plano Basic permite apenas 1 conexão. Faça upgrade para conectar mais.",
-        };
-      }
+    // We now enforce the limit explicitly, regardless of plan, 
+    // since higher plans simply have a higher initial limit or can buy more.
+    const countRes = await pool.query(
+      "SELECT COUNT(*) FROM whatsapp_instances WHERE organization_id = $1",
+      [orgId],
+    );
+    const count = parseInt(countRes.rows[0].count);
+
+    if (count >= limit) {
+      return {
+        allowed: false,
+        message: `Limite de ${limit} conex${limit === 1 ? 'ão' : 'ões'} atingido. Compre mais conexões para adicionar.`,
+      };
     }
+
     return { allowed: true, orgId };
   } catch (e) {
     log("checkPlanLimits error: " + e.message);
@@ -7455,20 +7457,29 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
     // Calculate Koins (10 Koins per R$1)
     const paymentAmount = payment.transaction_amount || 0;
     let koinsToCredit = Math.floor(paymentAmount * 10);
+    let connectionsToCredit = 0;
+    let purchasedQuantity = payment.metadata?.quantity ? parseInt(payment.metadata.quantity) : 1;
 
     // Check for product bonus via metadata
     const productId = payment.metadata?.product_id;
     if (productId) {
       try {
         const productRes = await pool.query(
-          "SELECT koins_bonus FROM products WHERE id = $1",
+          "SELECT koins_bonus, connections_bonus, type FROM products WHERE id = $1",
           [productId],
         );
         if (productRes.rows.length > 0) {
-          const bonus = productRes.rows[0].koins_bonus;
-          if (bonus > 0) {
-            koinsToCredit = bonus;
-            log(`[MP-IPN] Applied product specific bonus: ${bonus}`);
+          const product = productRes.rows[0];
+          const koins_bonus = product.koins_bonus;
+          const connections_bonus = product.connections_bonus;
+
+          if (koins_bonus > 0) {
+            koinsToCredit = koins_bonus * purchasedQuantity;
+            log(`[MP-IPN] Applied product specific koins bonus: ${koins_bonus} x ${purchasedQuantity}`);
+          }
+          if (connections_bonus > 0 || product.type === 'CONNECTIONS') {
+            connectionsToCredit = (connections_bonus > 0 ? connections_bonus : 1) * purchasedQuantity;
+            log(`[MP-IPN] Applied product connections bonus: ${connectionsToCredit}`);
           }
         }
       } catch (e) {
@@ -7480,18 +7491,20 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
         if (item.id && item.id.length > 10) {
           try {
             const productRes = await pool.query(
-              "SELECT koins_bonus FROM products WHERE id = $1",
+              "SELECT koins_bonus, connections_bonus, type FROM products WHERE id = $1",
               [item.id],
             );
-            if (
-              productRes.rows.length > 0 &&
-              productRes.rows[0].koins_bonus > 0
-            ) {
-              koinsToCredit = productRes.rows[0].koins_bonus;
-              log(
-                `[MP-IPN] Applied product bonus from item ${item.id}: ${koinsToCredit}`,
-              );
-              break; // Assume single product for now or first one wins
+            if (productRes.rows.length > 0) {
+              const product = productRes.rows[0];
+              if (product.koins_bonus > 0) {
+                koinsToCredit = product.koins_bonus * purchasedQuantity;
+                log(`[MP-IPN] Applied product koins bonus from item ${item.id}: ${koinsToCredit}`);
+              }
+              if (product.connections_bonus > 0 || product.type === 'CONNECTIONS') {
+                connectionsToCredit = (product.connections_bonus > 0 ? product.connections_bonus : 1) * purchasedQuantity;
+                log(`[MP-IPN] Applied product connections bonus from item ${item.id}: ${connectionsToCredit}`);
+              }
+              break; // Assume single product for now
             }
           } catch (e) { }
         }
@@ -7512,6 +7525,19 @@ app.post("/api/payments/mercadopago-ipn", async (req, res) => {
     log(
       `[MP-IPN] ✅ Credited ${koinsToCredit} Koins to user ${userId}. New balance: ${updateResult.rows[0].koins_balance}`,
     );
+
+    // Credit Connections if applicable
+    if (connectionsToCredit > 0) {
+      const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [userId]);
+      const orgId = userRes.rows[0]?.organization_id;
+      if (orgId) {
+        await pool.query(
+          "UPDATE organizations SET whatsapp_connections_limit = whatsapp_connections_limit + $1 WHERE id = $2",
+          [connectionsToCredit, orgId]
+        );
+        log(`[MP-IPN] ✅ Credited ${connectionsToCredit} connections to organization ${orgId}`);
+      }
+    }
 
     // Record in billing history
     try {
@@ -7846,7 +7872,7 @@ app.post("/api/products", verifyJWT, verifyAdmin, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { name, description, price, active, koins_bonus } = req.body;
+    const { name, description, price, active, koins_bonus, connections_bonus, type } = req.body;
     log(`[DEBUG] POST /api/products payload: ${JSON.stringify(req.body)}`);
 
     if (!name || price === undefined) {
@@ -7854,13 +7880,15 @@ app.post("/api/products", verifyJWT, verifyAdmin, async (req, res) => {
     }
 
     const result = await pool.query(
-      "INSERT INTO products (name, description, price, active, koins_bonus) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      "INSERT INTO products (name, description, price, active, koins_bonus, connections_bonus, type) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
       [
         name,
         description,
         price,
         active !== undefined ? active : true,
         koins_bonus || 0,
+        connections_bonus || 0,
+        type || 'KOINS',
       ],
     );
     res.json(result.rows[0]);
@@ -7887,7 +7915,7 @@ app.put("/api/products/:id", verifyJWT, verifyAdmin, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const { name, description, price, active, koins_bonus } = req.body;
+    const { name, description, price, active, koins_bonus, connections_bonus, type } = req.body;
 
     const result = await pool.query(
       `UPDATE products 
@@ -7896,14 +7924,18 @@ app.put("/api/products/:id", verifyJWT, verifyAdmin, async (req, res) => {
                  price = COALESCE($3, price), 
                  active = COALESCE($4, active),
                  koins_bonus = COALESCE($5, koins_bonus),
+                 connections_bonus = COALESCE($6, connections_bonus),
+                 type = COALESCE($7, type),
                  updated_at = NOW()
-             WHERE id = $6 RETURNING *`,
+             WHERE id = $8 RETURNING *`,
       [
         name || null,
         description || null,
         price !== undefined ? price : null,
         active !== undefined ? active : null,
         koins_bonus !== undefined ? koins_bonus : null,
+        connections_bonus !== undefined ? connections_bonus : null,
+        type || null,
         id,
       ],
     );

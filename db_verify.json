@@ -1,0 +1,53 @@
+[
+  {
+    "column_name": "id"
+  },
+  {
+    "column_name": "name"
+  },
+  {
+    "column_name": "description"
+  },
+  {
+    "column_name": "price"
+  },
+  {
+    "column_name": "active"
+  },
+  {
+    "column_name": "created_at"
+  },
+  {
+    "column_name": "updated_at"
+  },
+  {
+    "column_name": "organization_id"
+  },
+  {
+    "column_name": "koins_bonus"
+  },
+  {
+    "column_name": "connections_bonus"
+  },
+  {
+    "column_name": "type"
+  },
+  {
+    "column_name": "id"
+  },
+  {
+    "column_name": "name"
+  },
+  {
+    "column_name": "owner_id"
+  },
+  {
+    "column_name": "plan_type"
+  },
+  {
+    "column_name": "created_at"
+  },
+  {
+    "column_name": "whatsapp_connections_limit"
+  }
+]

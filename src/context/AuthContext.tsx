@@ -9,6 +9,7 @@ interface User {
         id: string;
         name: string;
         planType: 'basic' | 'pro' | 'enterprise';
+        whatsapp_connections_limit?: number;
     };
     koins_balance?: number;
     role: 'user' | 'admin';

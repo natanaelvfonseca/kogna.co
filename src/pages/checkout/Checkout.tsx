@@ -38,6 +38,7 @@ export function Checkout() {
     const [cardHolder, setCardHolder] = useState('');
     const [docNumber, setDocNumber] = useState('');
     const [installments, setInstallments] = useState(1);
+    const [quantity, setQuantity] = useState(1);
     const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
     const [paymentMethodId, setPaymentMethodId] = useState<string>('');
 
@@ -263,7 +264,7 @@ export function Checkout() {
 
             // Step 2: Send payment to backend
             const paymentData = {
-                transaction_amount: Number(product.price),
+                transaction_amount: Number(product.price * quantity),
                 token: tokenResponse.id,
                 description: product.name,
                 installments: installments,
@@ -277,7 +278,8 @@ export function Checkout() {
                 },
                 external_reference: user?.id || 'anonymous',
                 metadata: {
-                    product_id: product.id
+                    product_id: product.id,
+                    quantity: quantity
                 }
             };
 
@@ -338,7 +340,7 @@ export function Checkout() {
 
         try {
             const paymentData = {
-                transaction_amount: Number(product.price),
+                transaction_amount: Number(product.price * quantity),
                 description: product.name,
                 payment_method_id: 'pix',
                 payer: {
@@ -350,7 +352,8 @@ export function Checkout() {
                 },
                 external_reference: user?.id || 'anonymous',
                 metadata: {
-                    product_id: product.id
+                    product_id: product.id,
+                    quantity: quantity
                 }
             };
 
@@ -564,13 +567,36 @@ export function Checkout() {
                                     <div className="flex justify-between items-center py-4">
                                         <span className="font-medium text-gray-600">Total a pagar</span>
                                         <span className="font-bold text-3xl text-green-600">
-                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.price)}
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(product.price * quantity)}
                                         </span>
                                     </div>
                                     <p className="text-xs font-medium text-primary flex items-center gap-1.5 pb-3">
                                         <span>⚡</span> Créditos liberados imediatamente após a confirmação.
                                     </p>
-                                    <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 p-3 rounded-lg">
+
+                                    {/* Quantidade (If Connections Product) */}
+                                    {(product?.type === 'CONNECTIONS' || product?.connections_bonus > 0) && (
+                                        <div className="py-4 border-t border-gray-100 flex items-center justify-between">
+                                            <span className="font-medium text-gray-700">Quantidade de Conexões</span>
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                                                    className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                                >
+                                                    -
+                                                </button>
+                                                <span className="font-bold text-lg w-4 text-center">{quantity}</span>
+                                                <button
+                                                    onClick={() => setQuantity(quantity + 1)}
+                                                    className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 p-3 rounded-lg mt-3">
                                         <ShieldCheck className="w-4 h-4 text-green-500 shrink-0" />
                                         <span>🔒 Pagamento 100% seguro e criptografado.</span>
                                     </div>

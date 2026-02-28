@@ -19,6 +19,8 @@ interface Product {
     price: string | number;
     active: boolean;
     koins_bonus?: number;
+    connections_bonus?: number;
+    type?: string;
     created_at: string;
 }
 
@@ -32,7 +34,7 @@ export function AdminProducts() {
     // Modal & Form States
     const [showModal, setShowModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-    const [formData, setFormData] = useState({ name: '', description: '', price: '', koins_bonus: '' });
+    const [formData, setFormData] = useState({ name: '', description: '', price: '', koins_bonus: '', connections_bonus: '', type: 'KOINS' });
     const [formLoading, setFormLoading] = useState(false);
 
     // Debug State
@@ -88,7 +90,8 @@ export function AdminProducts() {
             const payload = {
                 ...formData,
                 price: parseFloat(formData.price.toString().replace(',', '.')),
-                koins_bonus: formData.koins_bonus ? parseInt(formData.koins_bonus.toString()) : 0
+                koins_bonus: formData.koins_bonus ? parseInt(formData.koins_bonus.toString()) : 0,
+                connections_bonus: formData.connections_bonus ? parseInt(formData.connections_bonus.toString()) : 0
             };
 
             setDebugLogs(prev => [...prev, {
@@ -183,11 +186,13 @@ export function AdminProducts() {
                 name: product.name,
                 description: product.description || '',
                 price: product.price.toString(),
-                koins_bonus: product.koins_bonus ? product.koins_bonus.toString() : ''
+                koins_bonus: product.koins_bonus ? product.koins_bonus.toString() : '',
+                connections_bonus: product.connections_bonus ? product.connections_bonus.toString() : '',
+                type: product.type || 'KOINS'
             });
         } else {
             setEditingProduct(null);
-            setFormData({ name: '', description: '', price: '', koins_bonus: '' });
+            setFormData({ name: '', description: '', price: '', koins_bonus: '', connections_bonus: '', type: 'KOINS' });
         }
         setDebugLogs([]); // Clear logs on open
         setShowModal(true);
@@ -244,7 +249,8 @@ export function AdminProducts() {
                                 <tr>
                                     <th className="px-6 py-3">Produto</th>
                                     <th className="px-6 py-3">Preço</th>
-                                    <th className="px-6 py-3">Bônus (Koins)</th> {/* Added new header */}
+                                    <th className="px-6 py-3">Bônus (Koins)</th>
+                                    <th className="px-6 py-3">Bônus (Conexões)</th>
                                     <th className="px-6 py-3">Link Checkout</th>
                                     <th className="px-6 py-3 text-right">Ações</th>
                                 </tr>
@@ -268,8 +274,11 @@ export function AdminProducts() {
                                         <td className="px-6 py-4 font-mono font-medium text-text-primary">
                                             R$ {parseFloat(product.price.toString()).toFixed(2)}
                                         </td>
-                                        <td className="px-6 py-4 font-mono text-text-primary"> {/* Added new data cell */}
+                                        <td className="px-6 py-4 font-mono text-text-primary">
                                             {product.koins_bonus || 0}
+                                        </td>
+                                        <td className="px-6 py-4 font-mono text-text-primary">
+                                            {product.connections_bonus || 0}
                                         </td>
                                         <td className="px-6 py-4">
                                             <button
@@ -344,21 +353,54 @@ export function AdminProducts() {
                                 />
                             </div>
 
-                            {/* New Koins Bonus Input */}
+                            {/* Product Type Selector */}
                             <div>
-                                <label className="text-sm font-medium mb-1 block">Bônus de Koins (Opcional)</label>
-                                <input
-                                    type="number"
-                                    step="1"
-                                    value={formData.koins_bonus}
-                                    onChange={e => setFormData({ ...formData, koins_bonus: e.target.value })}
+                                <label className="text-sm font-medium mb-1 block">Tipo de Produto</label>
+                                <select
+                                    value={formData.type}
+                                    onChange={e => setFormData({ ...formData, type: e.target.value })}
                                     className="w-full bg-background border border-border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary/20"
-                                    placeholder="Ex: 100"
-                                />
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    Se preenchido, o usuário receberá esta quantidade exata de Koins ao comprar este produto, ignorando a regra padrão de 10x o valor.
-                                </p>
+                                >
+                                    <option value="KOINS">Tokens (Koins)</option>
+                                    <option value="CONNECTIONS">Conexões de WhatsApp</option>
+                                </select>
                             </div>
+
+                            {/* New Koins Bonus Input */}
+                            {formData.type === 'KOINS' && (
+                                <div>
+                                    <label className="text-sm font-medium mb-1 block">Bônus de Koins (Opcional)</label>
+                                    <input
+                                        type="number"
+                                        step="1"
+                                        value={formData.koins_bonus}
+                                        onChange={e => setFormData({ ...formData, koins_bonus: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary/20"
+                                        placeholder="Ex: 100"
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Se preenchido, o usuário receberá esta quantidade exata de Koins ao comprar este produto, ignorando a regra padrão de 10x o valor.
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* New Connections Bonus Input */}
+                            {formData.type === 'CONNECTIONS' && (
+                                <div>
+                                    <label className="text-sm font-medium mb-1 block">Bônus de Conexões</label>
+                                    <input
+                                        type="number"
+                                        step="1"
+                                        value={formData.connections_bonus}
+                                        onChange={e => setFormData({ ...formData, connections_bonus: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary/20"
+                                        placeholder="Ex: 1"
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Quantidade de conexões extras de WhatsApp que o usuário receberá com a compra.
+                                    </p>
+                                </div>
+                            )}
 
                             <div>
                                 <label className="text-sm font-medium mb-1 block">Descrição (Opcional)</label>
