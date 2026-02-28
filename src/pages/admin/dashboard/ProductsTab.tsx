@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, Search, BarChart2, ServerCog, ArrowUpRight } from 'lucide-react';
+import { Package, BarChart2, ServerCog, ArrowUpRight } from 'lucide-react';
 import {
     BarChart,
     Bar,
@@ -22,8 +22,8 @@ export function ProductsTab({ data }: { data: any }) {
             try {
                 // Using standard vite env import format, fallback to hardcoded if omitted in context
                 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
-                const res = await fetch(\`\${apiBase}/api/admin/consumption\`, {
-                    headers: { 'Authorization': \`Bearer \${token}\` }
+                const res = await fetch(`${apiBase}/api/admin/consumption`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const logs = await res.json();
                 setConsumptionLogs(Array.isArray(logs) ? logs : []);
@@ -96,7 +96,7 @@ export function ProductsTab({ data }: { data: any }) {
                                     <tr key={p.id} className="hover:bg-purple-500/5 transition-colors">
                                         <td className="px-6 py-4 font-medium">{p.name}</td>
                                         <td className="px-6 py-4">
-                                            <span className={\`px-2 py-1 text-xs rounded-full \${p.type === 'KOINS' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}\`}>
+                                            <span className={`px-2 py-1 text-xs rounded-full ${p.type === 'KOINS' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
                                                 {p.type}
                                             </span>
                                         </td>
@@ -121,14 +121,14 @@ export function ProductsTab({ data }: { data: any }) {
                                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#333" />
                                 <XAxis type="number" hide />
                                 <YAxis dataKey="name" type="category" width={100} tick={{ fill: '#888', fontSize: 12 }} axisLine={false} tickLine={false} />
-                                <Tooltip 
-                                    cursor={{fill: 'rgba(124, 58, 237, 0.1)'}}
+                                <Tooltip
+                                    cursor={{ fill: 'rgba(124, 58, 237, 0.1)' }}
                                     contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }}
-                                    formatter={(value: number) => [\`R$ \${value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}\`, 'Receita']}
+                                    formatter={(value: number) => [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 'Receita']}
                                 />
                                 <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={32}>
-                                    {topProducts.map((_, index) => (
-                                        <Cell key={\`cell-\${index}\`} fill={index === 0 ? '#7C3AED' : '#D4AF37'} />
+                                    {topProducts.map((_: any, index: number) => (
+                                        <Cell key={`cell-${index}`} fill={index === 0 ? '#7C3AED' : '#D4AF37'} />
                                     ))}
                                 </Bar>
                             </BarChart>
@@ -168,7 +168,7 @@ export function ProductsTab({ data }: { data: any }) {
                                     const costBRL = costUSD * 5.0; // Rough peg for BRL
                                     const estimatedKoinRevenue = (Number(log.estimated_koins_spent) / 100); // Ex: 100 Koins = R$1.00 roughly based on packages
                                     const profitRatio = costBRL > 0.001 ? estimatedKoinRevenue / costBRL : 9.9;
-                                    
+
                                     return (
                                         <tr key={i} className="hover:bg-purple-500/5 transition-colors">
                                             <td className="px-6 py-4 font-medium flex items-center gap-2">
@@ -187,11 +187,11 @@ export function ProductsTab({ data }: { data: any }) {
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-full h-2 bg-muted/50 rounded-full overflow-hidden shrink-0 shadow-inner">
                                                         <div
-                                                            className={\`h-full transition-all duration-1000 \${profitRatio > 2.5 ? 'bg-gradient-to-r from-green-600 to-green-400' : profitRatio > 1.2 ? 'bg-gradient-to-r from-amber-600 to-amber-400' : 'bg-gradient-to-r from-red-600 to-red-400'}\`}
-                                                            style={{ width: \`\${Math.min(profitRatio * 20, 100)}%\` }}
+                                                            className={`h-full transition-all duration-1000 ${profitRatio > 2.5 ? 'bg-gradient-to-r from-green-600 to-green-400' : profitRatio > 1.2 ? 'bg-gradient-to-r from-amber-600 to-amber-400' : 'bg-gradient-to-r from-red-600 to-red-400'}`}
+                                                            style={{ width: `${Math.min(profitRatio * 20, 100)}%` }}
                                                         ></div>
                                                     </div>
-                                                    <span className={\`text-xs font-bold font-mono shrink-0 \${profitRatio > 2.5 ? 'text-green-500' : profitRatio > 1.2 ? 'text-amber-500' : 'text-red-500'}\`}>
+                                                    <span className={`text-xs font-bold font-mono shrink-0 ${profitRatio > 2.5 ? 'text-green-500' : profitRatio > 1.2 ? 'text-amber-500' : 'text-red-500'}`}>
                                                         {profitRatio.toFixed(1)}x
                                                     </span>
                                                 </div>

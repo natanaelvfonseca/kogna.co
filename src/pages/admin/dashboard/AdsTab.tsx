@@ -1,4 +1,4 @@
-import { Filter, MousePointerClick, UserPlus, DollarSign, ArrowUpRight, Megaphone, Target, BarChart4 } from 'lucide-react';
+import { Filter, MousePointerClick, UserPlus, DollarSign, ArrowUpRight, Megaphone, Target } from 'lucide-react';
 import {
     BarChart,
     Bar,
@@ -63,9 +63,9 @@ export function AdsTab({ data }: { data: any }) {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <AdCard
                     title="Investimento (Spend)"
-                    value={\`R$ \${investmentTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<DollarSign className="w-5 h-5 text-red-500" />}
-                detail="Custo total de mídias pagas"
+                    value={`R$ ${investmentTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                    icon={<DollarSign className="w-5 h-5 text-red-500" />}
+                    detail="Custo total de mídias pagas"
                 />
                 <AdCard
                     title="Leads Captados"
@@ -75,15 +75,15 @@ export function AdsTab({ data }: { data: any }) {
                 />
                 <AdCard
                     title="Custo por Lead (CPL)"
-                    value={\`R$ \${cpl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<MousePointerClick className="w-5 h-5 text-purple-500" />}
-                detail="Ticket médio de captação"
+                    value={`R$ ${cpl.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                    icon={<MousePointerClick className="w-5 h-5 text-purple-500" />}
+                    detail="Ticket médio de captação"
                 />
                 <AdCard
                     title="ROAS (Retorno)"
-                    value={\`\${roas.toFixed(2)}x\`}
-                icon={<ArrowUpRight className="w-5 h-5 text-green-500" />}
-                detail="Receita gerada / Investimento"
+                    value={`${roas.toFixed(2)}x`}
+                    icon={<ArrowUpRight className="w-5 h-5 text-green-500" />}
+                    detail="Receita gerada / Investimento"
                 />
             </div>
 
@@ -111,7 +111,7 @@ export function AdsTab({ data }: { data: any }) {
                                 />
                                 <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={40}>
                                     {funnelData.map((entry, index) => (
-                                        <Cell key={\`cell-\${index}\`} fill={entry.fill} />
+                                        <Cell key={`cell-${index}`} fill={entry.fill} />
                                     ))}
                                 </Bar>
                             </BarChart>
@@ -143,8 +143,8 @@ export function AdsTab({ data }: { data: any }) {
                                     dataKey="value"
                                     stroke="none"
                                 >
-                                    {sourcesData.map((entry, index) => (
-                                        <Cell key={\`cell-\${index}\`} fill={COLORS[index % COLORS.length]} />
+                                    {sourcesData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
                                 <Tooltip contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }} />

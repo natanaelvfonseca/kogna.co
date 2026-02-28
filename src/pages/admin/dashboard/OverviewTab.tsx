@@ -86,154 +86,154 @@ export function OverviewTab({ data }: { data: any }) {
                     <div className="mt-2 text-xs text-center text-muted-foreground flex flex-col gap-1 w-full px-4">
                         <div className="flex justify-between border-b border-white/5 pb-1">
                             <span>Status:</span>
-                            <span className={\`font-bold \${healthIndex > 70 ? 'text-green-500' : healthIndex > 40 ? 'text-amber-500' : 'text-red-500'}\`}>
-                            {healthIndex > 70 ? '🟢 SAUDÁVEL' : healthIndex > 40 ? '🟡 ATENÇÃO' : '🔴 CRÍTICO'}
-                        </span>
+                            <span className={`font-bold ${healthIndex > 70 ? 'text-green-500' : healthIndex > 40 ? 'text-amber-500' : 'text-red-500'}`}>
+                                {healthIndex > 70 ? '🟢 SAUDÁVEL' : healthIndex > 40 ? '🟡 ATENÇÃO' : '🔴 CRÍTICO'}
+                            </span>
+                        </div>
+                        <div className="flex justify-between pt-1">
+                            <span>Crescimento:</span>
+                            <span className="text-foreground">{growthPercentage > 0 ? '+' : ''}{growthPercentage.toFixed(1)}%</span>
+                        </div>
                     </div>
-                    <div className="flex justify-between pt-1">
-                        <span>Crescimento:</span>
-                        <span className="text-foreground">{growthPercentage > 0 ? '+' : ''}{growthPercentage.toFixed(1)}%</span>
+                </div>
+
+                {/* Primary Financial KPIs */}
+                <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <StatCard
+                        title="Receita Total"
+                        value={`R$ ${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        icon={<DollarSign className="w-5 h-5 text-purple-500" />}
+                        trend={`${growthPercentage >= 0 ? '+' : ''}${growthPercentage.toFixed(1)}% vs ant.`}
+                        trendPositive={growthPercentage >= 0}
+                    />
+                    <StatCard
+                        title="Lucro Estimado"
+                        value={`R$ ${estimatedProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        icon={<Activity className="w-5 h-5 text-green-500" />}
+                        trend="Receita - API - Ads"
+                        trendPositive={true}
+                    />
+                    <StatCard
+                        title="Receita Koins (Motor)"
+                        value={`R$ ${koinsRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        icon={<Zap className="w-5 h-5 text-amber-500" />}
+                        trend={`${koinsPercent.toFixed(1)}% da receita`}
+                        trendPositive={koinsPercent > 50}
+                    />
+                    <StatCard
+                        title="Receita Conexões WPP"
+                        value={`R$ ${connectionsRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-blue-500"><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21" /><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1" /></svg>}
+                        trend={`${connPercent.toFixed(1)}% da receita (Recorrente)`}
+                        trendPositive={true}
+                    />
+                    <StatCard
+                        title="Clientes Ativos"
+                        value={activeClients.toString()}
+                        icon={<Users className="w-5 h-5 text-cyan-500" />}
+                        trend={`+${newClients} novos | -${churn} cancelados`}
+                        trendPositive={newClients >= churn}
+                    />
+                    <StatCard
+                        title="Ticket Médio (ARPU)"
+                        value={`R$ ${ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                        icon={<TrendingUp className="w-5 h-5 text-rose-500" />}
+                        trend="Receita / Clientes"
+                        trendPositive={true}
+                    />
+                </div>
+            </div>
+
+            {/* Risk Management Banner */}
+            {
+                riskAlerts.length > 0 ? (
+                    <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center shadow-lg shadow-red-500/5">
+                        <div className="p-2 bg-red-500/20 rounded-full shrink-0">
+                            <AlertTriangle className="w-6 h-6 text-red-500" />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-red-500">Atenção Estratégica Necessária</h4>
+                            <ul className="text-sm text-red-400 mt-1 list-disc pl-4">
+                                {riskAlerts.map((alert, i) => <li key={i}>{alert}</li>)}
+                            </ul>
+                        </div>
                     </div>
-                </div>
-            </div>
+                ) : (
+                    <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-center gap-3 shadow-lg shadow-green-500/5">
+                        <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        <span className="text-green-500 text-sm font-medium">Nenhum risco crítico detectado nos indicadores atuais. Operação saudável.</span>
+                    </div>
+                )
+            }
 
-            {/* Primary Financial KPIs */}
-            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <StatCard
-                    title="Receita Total"
-                    value={\`R$ \${totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<DollarSign className="w-5 h-5 text-purple-500" />}
-                trend={\`\${growthPercentage >= 0 ? '+' : ''}\${growthPercentage.toFixed(1)}% vs ant.\`}
-                trendPositive={growthPercentage >= 0}
-                    />
-                <StatCard
-                    title="Lucro Estimado"
-                    value={\`R$ \${estimatedProfit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<Activity className="w-5 h-5 text-green-500" />}
-                trend="Receita - API - Ads"
-                trendPositive={true}
-                    />
-                <StatCard
-                    title="Receita Koins (Motor)"
-                    value={\`R$ \${koinsRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<Zap className="w-5 h-5 text-amber-500" />}
-                trend={\`\${koinsPercent.toFixed(1)}% da receita\`}
-                trendPositive={koinsPercent > 50}
-                    />
-                <StatCard
-                    title="Receita Conexões WPP"
-                    value={\`R$ \${connectionsRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-blue-500"><path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21" /><path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1a5 5 0 0 0 5 5h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1" /></svg>}
-                trend={\`\${connPercent.toFixed(1)}% da receita (Recorrente)\`}
-                trendPositive={true}
-                    />
-                <StatCard
-                    title="Clientes Ativos"
-                    value={activeClients.toString()}
-                    icon={<Users className="w-5 h-5 text-cyan-500" />}
-                    trend={\`+\${newClients} novos | -\${churn} cancelados\`}
-                trendPositive={newClients >= churn}
-                    />
-                <StatCard
-                    title="Ticket Médio (ARPU)"
-                    value={\`R$ \${ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\`}
-                icon={<TrendingUp className="w-5 h-5 text-rose-500" />}
-                trend="Receita / Clientes"
-                trendPositive={true}
-                    />
-            </div>
-        </div>
-
-            {/* Risk Management Banner */ }
-    {
-        riskAlerts.length > 0 ? (
-            <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center shadow-lg shadow-red-500/5">
-                <div className="p-2 bg-red-500/20 rounded-full shrink-0">
-                    <AlertTriangle className="w-6 h-6 text-red-500" />
-                </div>
-                <div>
-                    <h4 className="font-semibold text-red-500">Atenção Estratégica Necessária</h4>
-                    <ul className="text-sm text-red-400 mt-1 list-disc pl-4">
-                        {riskAlerts.map((alert, i) => <li key={i}>{alert}</li>)}
-                    </ul>
-                </div>
-            </div>
-        ) : (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-center gap-3 shadow-lg shadow-green-500/5">
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-            <span className="text-green-500 text-sm font-medium">Nenhum risco crítico detectado nos indicadores atuais. Operação saudável.</span>
-        </div>
-    )
-    }
-
-    {/* Secondary KPIs (Koins Usage) & Charts */ }
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue Timeline */}
-        <div className="bg-card border border-purple-500/20 rounded-xl p-6 shadow-xl shadow-purple-500/5">
-            <div className="mb-6">
-                <h3 className="text-lg font-semibold">Crescimento de Receita (Koins vs Conexões)</h3>
-                <p className="text-sm text-muted-foreground">Distribuição da receita histórica empilhada</p>
-            </div>
-            <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={revenueChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <defs>
-                            <linearGradient id="colorKoins" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3} />
-                                <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
-                            </linearGradient>
-                            <linearGradient id="colorConn" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                            </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
-                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 12 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 12 }} tickFormatter={(val) => \`R$\${val}\`} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }}
-                            formatter={(value: number, name: string) => [\`R$ \${value.toLocaleString()}\`, name === 'koins' ? 'Receita Koins' : 'Receita Conexões']}
+            {/* Secondary KPIs (Koins Usage) & Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Revenue Timeline */}
+                <div className="bg-card border border-purple-500/20 rounded-xl p-6 shadow-xl shadow-purple-500/5">
+                    <div className="mb-6">
+                        <h3 className="text-lg font-semibold">Crescimento de Receita (Koins vs Conexões)</h3>
+                        <p className="text-sm text-muted-foreground">Distribuição da receita histórica empilhada</p>
+                    </div>
+                    <div className="h-[300px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={revenueChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <defs>
+                                    <linearGradient id="colorKoins" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="colorConn" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
+                                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 12 }} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#888', fontSize: 12 }} tickFormatter={(val) => `R$${val}`} />
+                                <Tooltip
+                                    contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }}
+                                    formatter={(value: number, name: string) => [`R$ ${value.toLocaleString()}`, name === 'koins' ? 'Receita Koins' : 'Receita Conexões']}
                                 />
-                        <Area type="monotone" dataKey="koins" stackId="1" stroke="#D4AF37" fill="url(#colorKoins)" />
-                        <Area type="monotone" dataKey="connections" stackId="1" stroke="#3B82F6" fill="url(#colorConn)" />
-                    </AreaChart>
-                </ResponsiveContainer>
-            </div>
-        </div>
+                                <Area type="monotone" dataKey="koins" stackId="1" stroke="#D4AF37" fill="url(#colorKoins)" />
+                                <Area type="monotone" dataKey="connections" stackId="1" stroke="#3B82F6" fill="url(#colorConn)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
 
-        {/* Koins Economy Balance */}
-        <div className="bg-card border border-purple-500/20 rounded-xl p-6 shadow-xl shadow-purple-500/5">
-            <div className="mb-6">
-                <h3 className="text-lg font-semibold">Economia de Koins</h3>
-                <p className="text-sm text-muted-foreground">Relação entre Koins Injetados no ecossistema e Queimados</p>
-            </div>
-            <div className="h-[200px] w-full mb-6">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={[{ name: 'Economia Global', vendidos: koinsSold, consumidos: koinsConsumed }]} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#333" />
-                        <XAxis type="number" hide />
-                        <YAxis dataKey="name" type="category" hide />
-                        <Tooltip
-                            cursor={{ fill: 'transparent' }}
-                            contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }}
-                        />
-                        <Bar dataKey="vendidos" name="Koins Vendidos" fill="#7C3AED" radius={[0, 4, 4, 0]} barSize={40} />
-                        <Bar dataKey="consumidos" name="Koins Consumidos" fill="#D4AF37" radius={[0, 4, 4, 0]} barSize={40} />
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-2 gap-4 border-t border-purple-500/10 pt-4">
-                <div>
-                    <p className="text-sm text-muted-foreground">Vendidos (Injetados)</p>
-                    <p className="text-xl font-mono font-bold text-purple-400">{koinsSold.toLocaleString()}</p>
+                {/* Koins Economy Balance */}
+                <div className="bg-card border border-purple-500/20 rounded-xl p-6 shadow-xl shadow-purple-500/5">
+                    <div className="mb-6">
+                        <h3 className="text-lg font-semibold">Economia de Koins</h3>
+                        <p className="text-sm text-muted-foreground">Relação entre Koins Injetados no ecossistema e Queimados</p>
+                    </div>
+                    <div className="h-[200px] w-full mb-6">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={[{ name: 'Economia Global', vendidos: koinsSold, consumidos: koinsConsumed }]} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#333" />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" hide />
+                                <Tooltip
+                                    cursor={{ fill: 'transparent' }}
+                                    contentStyle={{ backgroundColor: '#111', borderColor: '#7C3AED', borderRadius: '8px' }}
+                                />
+                                <Bar dataKey="vendidos" name="Koins Vendidos" fill="#7C3AED" radius={[0, 4, 4, 0]} barSize={40} />
+                                <Bar dataKey="consumidos" name="Koins Consumidos" fill="#D4AF37" radius={[0, 4, 4, 0]} barSize={40} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-t border-purple-500/10 pt-4">
+                        <div>
+                            <p className="text-sm text-muted-foreground">Vendidos (Injetados)</p>
+                            <p className="text-xl font-mono font-bold text-purple-400">{koinsSold.toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p className="text-sm text-muted-foreground">Consumidos (Queimados)</p>
+                            <p className="text-xl font-mono font-bold text-amber-400">{koinsConsumed.toLocaleString()}</p>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <p className="text-sm text-muted-foreground">Consumidos (Queimados)</p>
-                    <p className="text-xl font-mono font-bold text-amber-400">{koinsConsumed.toLocaleString()}</p>
-                </div>
             </div>
-        </div>
-    </div>
         </div >
     );
 }
@@ -246,15 +246,15 @@ function StatCard({ title, value, icon, trend, trendPositive }: { title: string,
                 <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
                     <h2 className="text-2xl font-bold font-mono text-foreground">{value}</h2>
-                    <p className={\`text-xs flex items-center gap-1 font-semibold mt-2 \${trendPositive ? 'text-green-500' : 'text-amber-500'}\`}>
-                    {trendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {trend}
-                </p>
+                    <p className={`text-xs flex items-center gap-1 font-semibold mt-2 ${trendPositive ? 'text-green-500' : 'text-amber-500'}`}>
+                        {trendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                        {trend}
+                    </p>
+                </div>
+                <div className="p-2.5 bg-background border border-purple-500/10 rounded-lg group-hover:scale-110 group-hover:bg-purple-500/10 transition-all">
+                    {icon}
+                </div>
             </div>
-            <div className="p-2.5 bg-background border border-purple-500/10 rounded-lg group-hover:scale-110 group-hover:bg-purple-500/10 transition-all">
-                {icon}
-            </div>
-        </div>
         </div >
     );
 }
