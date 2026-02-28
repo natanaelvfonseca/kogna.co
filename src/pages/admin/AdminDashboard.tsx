@@ -43,7 +43,7 @@ export function AdminDashboard() {
     const [formError, setFormError] = useState('');
     const [formSuccess, setFormSuccess] = useState('');
 
-    const apiBase = '';
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
     useEffect(() => {
         fetchData();
