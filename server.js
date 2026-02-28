@@ -3938,10 +3938,10 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         .trim()
         .replace(/[^a-zA-Z0-9]/g, "")
         .toLowerCase();
-      instanceName = `${emailSanitized}_${labelSanitized} `;
+      instanceName = `${emailSanitized}_${labelSanitized}`;
     }
 
-    log(`Target Instance Name: ${instanceName} `);
+    log(`Target Instance Name: ${instanceName}`);
 
     // Check if THIS specific instance already exists
     const existingInstanceRes = await pool.query(
@@ -3963,7 +3963,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
     // ... Existing Logic for "Instance exists" ...
     if (existingInstance) {
       const instance = existingInstance;
-      log(`Instance already exists: ${instance.status} `);
+      log(`Instance already exists: ${instance.status}`);
 
       if (instance.status === "CONNECTED") {
         return res.json({
@@ -3974,7 +3974,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       }
 
       // Instance exists but is DISCONNECTED -> Try to get QR Code again
-      log(`Instance ${instanceName} is disconnected.Fetching new QR Code...`);
+      log(`Instance ${instanceName} is disconnected. Fetching new QR Code...`);
 
       const evolutionApiUrl =
         process.env.EVOLUTION_API_URL || "https://evo.kogna.co";
@@ -4005,7 +4005,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
             );
             instance.status = "CONNECTED";
             log(
-              `Instance ${instanceName} was found connected on Evolution.Updated local DB.`,
+              `Instance ${instanceName} was found connected on Evolution. Updated local DB.`,
             );
             return res.json({
               exists: true,
@@ -4015,7 +4015,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
         }
       } catch (err) {
         log(
-          `Failed to check connection state for existing instance: ${err.message} `,
+          `Failed to check connection state for existing instance: ${err.message}`,
         );
       }
 
@@ -4042,7 +4042,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
             );
             instance.status = "CONNECTED";
             log(
-              `Instance ${instanceName} connect call returned no QR(likely connected).Updated local DB.`,
+              `Instance ${instanceName} connect call returned no QR (likely connected). Updated local DB.`,
             );
             return res.json({
               exists: true,
@@ -4123,7 +4123,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
 
     if (!evolutionResponse.ok) {
       const finalError = await evolutionResponse.text();
-      throw new Error(`Failed to create instance: ${finalError} `);
+      throw new Error(`Failed to create instance: ${finalError}`);
     }
 
     const evolutionData = await evolutionResponse.json();
@@ -4171,7 +4171,7 @@ app.post("/api/whatsapp/connect", verifyJWT, async (req, res) => {
       log(`Settings configured for ${instanceName}: Ignore Groups ENABLED`);
     } else {
       log(
-        `WARNING: Failed to set settings for ${instanceName}: ${await settingsRes.text()} `,
+        `WARNING: Failed to set settings for ${instanceName}: ${await settingsRes.text()}`,
       );
     }
 
@@ -4234,7 +4234,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
   // Log received webhook (truncated for safety)
   const logBody = { ...req.body };
   if (logBody.data) logBody.data = "[TRUNCATED]";
-  log(`Webhook received: ${JSON.stringify(logBody)} `);
+  log(`Webhook received: ${JSON.stringify(logBody)}`);
 
   try {
     // Handle CONNECTION_UPDATE event
@@ -4245,7 +4245,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       const instanceName = event.instance;
       const state = event.data?.state || event.state;
 
-      log(`Connection update for ${instanceName}: ${state} `);
+      log(`Connection update for ${instanceName}: ${state}`);
 
       if (isConnectedState(state)) {
         await pool.query(
@@ -4479,7 +4479,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       }
 
       log(
-        `[AI] Message received from ${remoteJid} on instance ${instanceName}: ${finalUserText} ${imageUrl ? "[+IMAGE]" : ""} `,
+        `[AI] Message received from ${remoteJid} on instance ${instanceName}: ${finalUserText} ${imageUrl ? "[+IMAGE]" : ""}`,
       );
 
       // 1. Find the Agent connected to this instance (Already done above)
@@ -4651,7 +4651,7 @@ app.get("/api/instances", verifyJWT, async (req, res) => {
 app.post("/api/repair-connection", verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
-    log(`[REPAIR] Request from user ${userId} `);
+    log(`[REPAIR] Request from user ${userId}`);
 
     // 1. Get User & Org
     const userRes = await pool.query(
@@ -4670,7 +4670,7 @@ app.post("/api/repair-connection", verifyJWT, async (req, res) => {
       // Let's create one if missing, just like ensureUserInitialized
       const newOrg = await pool.query(
         "INSERT INTO organizations (name, plan_type) VALUES ($1, 'pro') RETURNING id",
-        [`Org of ${user.email} `],
+        [`Org of ${user.email}`],
       );
       await pool.query("UPDATE users SET organization_id = $1 WHERE id = $2", [
         newOrg.rows[0].id,
@@ -4706,7 +4706,7 @@ app.post("/api/repair-connection", verifyJWT, async (req, res) => {
 
 app.post("/api/instance", verifyJWT, async (req, res) => {
   const { instanceName, token, status } = req.body;
-  log(`POST / api / instance: ${instanceName} `);
+  log(`POST /api/instance: ${instanceName}`);
 
   const userId = req.userId;
 
@@ -4752,7 +4752,7 @@ app.post("/api/instance", verifyJWT, async (req, res) => {
   try {
     // The instanceName is now derived from the user's email in /api/whatsapp/connect
     // This endpoint is more for manual creation/linking, so we'll use a generic name or the provided one.
-    const finalInstanceName = instanceName || `kogna_${userId.substring(0, 8)} `;
+    const finalInstanceName = instanceName || `kogna_${userId.substring(0, 8)}`;
 
     // Ensure organization_id is passed. limits.orgId should have it.
     const orgIdToUse =
@@ -4786,7 +4786,7 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
     const { id } = req.params;
-    log(`[DELETE_INSTANCE] Request from user ${userId} for instance ID ${id} `);
+    log(`[DELETE_INSTANCE] Request from user ${userId} for instance ID ${id}`);
 
     // 1. Get instance details and verify ownership/org
     const userRes = await pool.query(
@@ -4794,7 +4794,7 @@ app.delete("/api/instance/:id", verifyJWT, async (req, res) => {
       [userId],
     );
     const orgId = userRes.rows[0]?.organization_id;
-    log(`[DELETE_INSTANCE] User Org: ${orgId} `);
+    log(`[DELETE_INSTANCE] User Org: ${orgId}`);
 
     const instanceRes = await pool.query(
       "SELECT * FROM whatsapp_instances WHERE id = $1",
