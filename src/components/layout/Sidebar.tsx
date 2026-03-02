@@ -20,11 +20,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+    { icon: LayoutDashboard, label: 'Revenue Intelligence', path: '/dashboard' },
     { icon: MessageSquare, label: 'Conexão WhatsApp', path: '/whatsapp' },
-    { icon: BrainCircuit, label: 'Minhas IAs', path: '/brain' },
-    { icon: MessagesSquare, label: 'Live Chat', path: '/live-chat' },
-    { icon: Users, label: 'Leads / CRM', path: '/crm' },
+    { icon: BrainCircuit, label: 'Revenue Agents', path: '/brain' },
+    { icon: MessagesSquare, label: 'Handoff Comercial', path: '/live-chat' },
+    { icon: Users, label: 'Pipeline Inteligente', path: '/crm' },
     { icon: UserCheck, label: 'Clientes', path: '/clients' },
     { icon: RotateCcw, label: 'Recuperação', path: '/recovery' },
     { icon: CalendarDays, label: 'Agenda', path: '/agenda' },

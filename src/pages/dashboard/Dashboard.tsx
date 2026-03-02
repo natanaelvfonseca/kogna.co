@@ -4,7 +4,10 @@ import {
     Calendar,
     DollarSign,
     CheckCircle,
-    Users
+    Users,
+    Flame,
+    TrendingUp,
+    ArrowRight
 } from 'lucide-react';
 import {
     AreaChart,
@@ -34,12 +37,35 @@ interface DashboardMetrics {
     };
 }
 
+interface HeatmapLead {
+    id: string;
+    name: string;
+    phone: string;
+    company?: string;
+    status: string;
+    value: number;
+    score: number;
+    temperature: string;
+    intentLabel: 'CRITICAL' | 'HOT' | 'WARM' | 'COLD';
+    briefing?: string;
+    lastInteraction?: string;
+}
+
+const intentConfig = {
+    CRITICAL: { label: 'CRÍTICO', color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/30', dot: 'bg-red-500' },
+    HOT: { label: 'QUENTE', color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30', dot: 'bg-orange-500' },
+    WARM: { label: 'MORNO', color: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', dot: 'bg-yellow-500' },
+    COLD: { label: 'FRIO', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30', dot: 'bg-blue-500' },
+};
+
 export function Dashboard() {
     const { user, token: authToken } = useAuth();
     const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedDays, setSelectedDays] = useState(7);
+    const [heatmap, setHeatmap] = useState<HeatmapLead[]>([]);
+    const [heatmapLoading, setHeatmapLoading] = useState(true);
 
     useEffect(() => {
         if (!user) return;
@@ -82,6 +108,24 @@ export function Dashboard() {
         fetchMetrics();
     }, [user, authToken, selectedDays]);
 
+    useEffect(() => {
+        if (!authToken) return;
+        const fetchHeatmap = async () => {
+            setHeatmapLoading(true);
+            try {
+                const res = await fetch('/api/leads/heatmap', {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (res.ok) setHeatmap(await res.json());
+            } catch (e) {
+                console.error('[Heatmap] fetch error', e);
+            } finally {
+                setHeatmapLoading(false);
+            }
+        };
+        fetchHeatmap();
+    }, [authToken]);
+
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat('pt-BR', {
             style: 'currency',
@@ -109,13 +153,11 @@ export function Dashboard() {
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary">Olá {user?.name || 'Visitante'}!</h1>
                     <p className="text-text-secondary mt-1">
-                        Você no comando da sua operação.{' '}
+                        Revenue Intelligence em tempo real.{' '}
                         <span className="relative inline-block ml-1">
-                            {/* Glowing background */}
                             <span className="absolute inset-0 bg-primary/20 blur-md rounded-full animate-pulse"></span>
-                            {/* Gradient text */}
                             <span className="relative font-semibold text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-500 tracking-wide drop-shadow-sm">
-                                A IA cuida do resto.
+                                A IA monitora cada oportunidade.
                             </span>
                         </span>
                     </p>
@@ -320,6 +362,86 @@ export function Dashboard() {
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* === LEAD HEAT MAP: Revenue OS === */}
+            <div className="bg-surface border border-border/50 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-orange-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-orange-500/10 rounded-lg">
+                            <Flame size={20} className="text-orange-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-display font-bold text-text-primary">Lead Heat Map</h2>
+                            <p className="text-xs text-text-secondary">Oportunidades classificadas por intenção de compra em tempo real</p>
+                        </div>
+                    </div>
+                    <a href="/crm" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-primary transition-colors font-medium">
+                        Ver Pipeline <ArrowRight size={14} />
+                    </a>
+                </div>
+
+                {heatmapLoading ? (
+                    <div className="text-center py-8 text-text-muted text-sm">Carregando inteligência...</div>
+                ) : heatmap.length === 0 ? (
+                    <div className="text-center py-10">
+                        <div className="flex flex-col items-center gap-3">
+                            <div className="p-3 bg-surface-secondary rounded-xl">
+                                <TrendingUp size={24} className="text-text-muted" />
+                            </div>
+                            <p className="text-sm text-text-secondary font-medium">Nenhum lead com score ainda</p>
+                            <p className="text-xs text-text-muted max-w-xs">
+                                O Heat Map se preenche automaticamente conforme a IA conversa com seus leads e classifica a intenção de compra.
+                            </p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {heatmap.map((lead) => {
+                            const cfg = intentConfig[lead.intentLabel] || intentConfig.COLD;
+                            return (
+                                <div key={lead.id} className={`flex items-center gap-4 p-3.5 rounded-xl border ${cfg.border} ${cfg.bg} hover:opacity-90 transition-opacity cursor-pointer`}>
+                                    {/* Score ring */}
+                                    <div className="flex-shrink-0 relative w-10 h-10 flex items-center justify-center">
+                                        <svg className="absolute inset-0" viewBox="0 0 36 36">
+                                            <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white/5" />
+                                            <circle
+                                                cx="18" cy="18" r="15" fill="none"
+                                                stroke={lead.score >= 85 ? '#f87171' : lead.score >= 65 ? '#fb923c' : lead.score >= 35 ? '#facc15' : '#60a5fa'}
+                                                strokeWidth="2.5"
+                                                strokeDasharray={`${(lead.score / 100) * 94.2} 94.2`}
+                                                strokeLinecap="round"
+                                                transform="rotate(-90 18 18)"
+                                            />
+                                        </svg>
+                                        <span className="text-xs font-bold text-text-primary">{lead.score}</span>
+                                    </div>
+
+                                    {/* Lead info */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-semibold text-text-primary truncate">{lead.name}</p>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${cfg.bg} ${cfg.color} border ${cfg.border} flex-shrink-0`}>{cfg.label}</span>
+                                        </div>
+                                        <p className="text-xs text-text-secondary truncate mt-0.5">
+                                            {lead.briefing || lead.temperature}
+                                        </p>
+                                    </div>
+
+                                    {/* Value */}
+                                    {lead.value > 0 && (
+                                        <div className="flex-shrink-0 text-right">
+                                            <p className="text-xs font-bold text-text-primary">
+                                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(lead.value)}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* Last updated timestamp */}

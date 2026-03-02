@@ -151,6 +151,7 @@ const initPool = async () => {
 initPool().then(() => {
   ensureLeadsColumns();
   setTimeout(ensureMessageBuffer, 3000);
+  setTimeout(ensureRevenueOSColumns, 5000); // Revenue OS: ensure intent_label, last_ia_briefing, assigned_to
 }).catch(e => log("Startup error: " + e.message));
 
 app.use(cors({ origin: true, credentials: true }));
@@ -5053,6 +5054,55 @@ app.get("/api/leads", verifyJWT, async (req, res) => {
   }
 });
 
+// GET /api/leads/heatmap - Revenue OS: Leads sorted by intent score for Heat Map widget
+app.get("/api/leads/heatmap", verifyJWT, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const userRes = await pool.query(
+      "SELECT organization_id FROM users WHERE id = $1",
+      [userId],
+    );
+    const orgId = userRes.rows[0]?.organization_id;
+    if (!orgId) return res.json([]);
+
+    const result = await pool.query(
+      `SELECT 
+         id, name, phone, company, status, value,
+         COALESCE(score, 0) as score,
+         COALESCE(temperature, '🔵 Frio') as temperature,
+         COALESCE(intent_label, 'COLD') as intent_label,
+         last_ia_briefing,
+         last_interaction_at,
+         last_contact
+       FROM leads 
+       WHERE organization_id = $1
+         AND COALESCE(score, 0) > 0
+       ORDER BY score DESC, last_interaction_at DESC
+       LIMIT 20`,
+      [orgId],
+    );
+
+    const heatmap = result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      company: row.company,
+      status: row.status,
+      value: Number(row.value),
+      score: Number(row.score),
+      temperature: row.temperature,
+      intentLabel: row.intent_label,
+      briefing: row.last_ia_briefing,
+      lastInteraction: row.last_interaction_at || row.last_contact,
+    }));
+
+    res.json(heatmap);
+  } catch (err) {
+    log("GET /api/leads/heatmap error: " + err.toString());
+    res.status(500).json({ error: "Failed to fetch heatmap" });
+  }
+});
+
 // PATCH /api/leads/:id/status - Update lead status
 app.patch("/api/leads/:id/status", verifyJWT, async (req, res) => {
   const { id } = req.params;
@@ -8396,7 +8446,27 @@ async function convertToAudio(text) {
   return filePath;
 }
 
-// --- LEAD SCORING SYSTEM ---
+// --- REVENUE OS: INTENT SCORE ENGINE ---
+// Self-healing: ensure new Revenue OS columns exist on startup
+async function ensureRevenueOSColumns() {
+  try {
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS intent_label VARCHAR(20) DEFAULT 'COLD'`);
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_ia_briefing TEXT`);
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_to UUID`);
+    log('[REVENUE-OS] DB columns ensured: intent_label, last_ia_briefing, assigned_to');
+  } catch (err) {
+    log(`[REVENUE-OS] Column ensure error (non-critical): ${err.message}`);
+  }
+}
+
+// Intent label mapping from score
+function scoreToIntentLabel(score) {
+  if (score >= 85) return 'CRITICAL'; // Pronto para fechar
+  if (score >= 65) return 'HOT';      // Alto engajamento
+  if (score >= 35) return 'WARM';     // Interesse moderado
+  return 'COLD';                       // Baixo engajamento
+}
+
 async function updateLeadScore(agentId, remoteJid, organizationId, historyMessages) {
   try {
     // 1. Find Lead
@@ -8407,27 +8477,35 @@ async function updateLeadScore(agentId, remoteJid, organizationId, historyMessag
     const leadId = leadRes.rows[0]?.id;
 
     if (!leadId) {
-      log(`[LEAD-SCORING] No lead found for ${remoteJid} in organization ${organizationId}. Skipping score update.`);
+      log(`[INTENT-SCORE] No lead found for ${remoteJid} in org ${organizationId}. Skipping.`);
       return;
     }
 
-    // 2. Prepare Context (Last 10 messages for efficiency)
+    // 2. Prepare Context (Last 12 messages for accuracy)
     const context = historyMessages
-      .slice(-10)
-      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .slice(-12)
+      .filter(m => m && m.content && !m.tool_calls)
+      .map(m => `${m.role.toUpperCase()}: ${String(m.content).substring(0, 400)}`)
       .join('\n');
 
-    // 3. Request Analysis from AI
-    const scoringPrompt = `Analise a conversa abaixo e classifique o Lead.
-Responda APENAS um JSON válido.
+    // 3. Revenue OS Intent Classification Prompt
+    const scoringPrompt = `Você é o motor de inteligência comercial da Kogna Revenue OS.
+Analise a conversa abaixo e retorne APENAS um JSON válido.
 
-CAMPOS:
-- score: (0-100) baseada em intenção de compra e urgência.
-- temperature: "🔥 Quente", "🟡 Morno" ou "🔵 Frio".
-- reason: justificativa curta.
+CAMPOS OBRIGATÓRIOS:
+- score: (0-100) Pontuação de intenção de compra e urgência. 85-100 = pronto para fechar, 65-84 = alta intenção, 35-64 = interesse moderado, 0-34 = frio.
+- temperature: "🔥 Quente", "🟡 Morno" ou "🔵 Frio" (compatível com sistema existente).
+- briefing: Uma frase curta (máx 100 chars) descrevendo o estado atual do lead. Ex: "Interessado no plano Pro, objeção de preço, aguarda proposta".
+- reason: Justificativa interna curta (máx 80 chars) para o score.
 
 CONVERSA:
 ${context}
+
+Regras:
+- Se lead pediu preço, demonstração ou disse "quero fechar": score >= 75.
+- Se lead desapareceu ou disse "vou pensar": score <= 40.
+- Se lead tem objeção ativa (preço, tempo, concorrente): score entre 45-70.
+- "temperature" deve ser compatível com o sistema anterior (Quente/Morno/Frio com emojis).
 
 JSON:`;
 
@@ -8438,16 +8516,23 @@ JSON:`;
     });
 
     const result = JSON.parse(completion.choices[0].message.content);
+    const intentLabel = scoreToIntentLabel(result.score || 0);
 
-    // 4. Update Database
+    // 4. Update Database with all Revenue OS fields
     await pool.query(
-      "UPDATE leads SET score = $1, temperature = $2 WHERE id = $3",
-      [result.score, result.temperature, leadId]
+      `UPDATE leads 
+       SET score = $1, 
+           temperature = $2, 
+           intent_label = $3,
+           last_ia_briefing = $4,
+           last_interaction_at = NOW()
+       WHERE id = $5`,
+      [result.score, result.temperature, intentLabel, result.briefing || null, leadId]
     );
 
-    log(`[LEAD-SCORING] Lead ${leadId} updated: ${result.temperature} (${result.score} pts) - ${result.reason}`);
+    log(`[INTENT-SCORE] Lead ${leadId}: ${intentLabel} (${result.score}pts) | ${result.briefing || result.reason}`);
   } catch (err) {
-    log(`[LEAD-SCORING] Error: ${err.message}`);
+    log(`[INTENT-SCORE] Error: ${err.message}`);
   }
 }
 
