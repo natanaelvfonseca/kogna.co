@@ -535,6 +535,13 @@ async function processConversationIntelligence(messageContent, context) {
  */
 async function calculateOpportunityScore(orgId, leadId) {
   try {
+    const normalizeText = (value = "") =>
+      String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
     // 1. Fetch latest CIL messages for the lead
     const messagesRes = await pool.query(`
       SELECT intent, product_interest, stage, urgency, sentiment, objections, created_at
@@ -546,6 +553,8 @@ async function calculateOpportunityScore(orgId, leadId) {
     if (messagesRes.rows.length === 0) return;
     const messages = messagesRes.rows;
     const latestMsg = messages[0];
+    const latestIntent = normalizeText(latestMsg.intent);
+    const latestUrgency = normalizeText(latestMsg.urgency);
 
     // 2. Compute Signals & Weights
     let score = 0;
@@ -557,20 +566,24 @@ async function calculateOpportunityScore(orgId, leadId) {
     }
 
     // --- POSITIVE SIGNALS ---
-    if (latestMsg.intent === 'compra') addSignal('intent_compra', 25);
+    if (latestIntent === 'compra') addSignal('intent_compra', 25);
 
-    const hasPriceRequest = messages.some(m => m.stage === 'proposta' || m.intent === 'comparação');
+    const hasPriceRequest = messages.some((m) => {
+      const msgStage = normalizeText(m.stage);
+      const msgIntent = normalizeText(m.intent);
+      return msgStage === 'proposta' || msgIntent === 'comparacao';
+    });
     if (hasPriceRequest) addSignal('perguntou_preco_ou_forma_pagamento', 20);
 
     if (latestMsg.product_interest && latestMsg.product_interest !== 'N/A') addSignal('interesse_produto_claro', 15);
 
-    if (latestMsg.urgency === 'alta') addSignal('urgencia_alta', 15);
-    else if (latestMsg.urgency === 'média') addSignal('urgencia_media', 5);
+    if (latestUrgency === 'alta') addSignal('urgencia_alta', 15);
+    else if (latestUrgency === 'media') addSignal('urgencia_media', 5);
 
-    if (latestMsg.stage === 'proposta' && latestMsg.intent === 'compra') addSignal('pediu_proposta', 25);
+    if (normalizeText(latestMsg.stage) === 'proposta' && latestIntent === 'compra') addSignal('pediu_proposta', 25);
 
     // --- NEGATIVE SIGNALS ---
-    if (latestMsg.intent === 'informação') addSignal('apenas_pesquisando', -5);
+    if (latestIntent === 'informacao') addSignal('apenas_pesquisando', -5);
 
     const hasPriceObjection = latestMsg.objections && latestMsg.objections.some(o => o.toLowerCase().includes('preço') || o.toLowerCase().includes('caro') || o.toLowerCase().includes('valor'));
     if (hasPriceObjection) addSignal('objecao_preco', -10);
@@ -592,7 +605,11 @@ async function calculateOpportunityScore(orgId, leadId) {
     let targetStage = null; // resolved below after fetching real columns
     try {
       const colsRes = await pool.query(
-        `SELECT title FROM lead_columns WHERE organization_id = $1 ORDER BY order_index ASC`,
+        `SELECT title
+           FROM lead_columns
+          WHERE organization_id = $1
+             OR user_id IN (SELECT id FROM users WHERE organization_id = $1)
+          ORDER BY order_index ASC`,
         [orgId]
       );
       const cols = colsRes.rows.map(r => r.title);
@@ -16055,4 +16072,3 @@ process.on("exit", (code) => {
     process.exit(0);
   });
 });
-
