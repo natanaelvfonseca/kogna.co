@@ -35,6 +35,15 @@ interface RevenueIntelligenceData {
     distribution: { range: string; count: number }[];
     conversion_rates: { range: string; rate: number }[];
 }
+interface SalesProfessorData {
+    errors: Array<{ id: string; type: string; title: string; description: string; lead_name?: string | null }>;
+    summary: {
+        ignored_hot_leads: number;
+        avg_response_time_hours: number;
+        lost_by_delay: number;
+        opportunities_missed: number;
+    };
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -153,6 +162,7 @@ export function RevenueMetrics() {
     const { data: revIntel, loading: revIntelLoading } = useAPI<RevenueIntelligenceData>(
         `/api/dashboard/revenue-intelligence?days=${selectedDays}`, token, [selectedDays]
     );
+    const { data: salesProfessor } = useAPI<SalesProfessorData>('/api/dashboard/sales-professor', token, [selectedDays]);
 
     const urgencyLeads = urgency ? urgency[urgencyTab] : [];
     const urgencyCounts = urgency ? { now: urgency.now.length, today: urgency.today.length, at_risk: urgency.at_risk.length } : { now: 0, today: 0, at_risk: 0 };
@@ -172,6 +182,34 @@ export function RevenueMetrics() {
 
     const recommendations = (() => {
         const items: Array<{ id: string; title: string; desc: string; type: 'warning' | 'info' | 'success' }> = [];
+        const professorErrors = salesProfessor?.errors || [];
+        const professorSummary = salesProfessor?.summary;
+
+        if (professorSummary?.ignored_hot_leads) {
+            items.push({
+                id: 'prof-hot-ignored',
+                type: 'warning',
+                title: 'Leads quentes ignorados',
+                desc: `${professorSummary.ignored_hot_leads} lead(s) quente(s) sem contato recente. Priorize retorno agora.`,
+            });
+        }
+        if (professorSummary?.avg_response_time_hours && professorSummary.avg_response_time_hours > 1) {
+            items.push({
+                id: 'prof-response-time',
+                type: 'warning',
+                title: 'Tempo médio de resposta elevado',
+                desc: `A equipe está levando ${fmtHours(professorSummary.avg_response_time_hours)} em média após handoff humano.`,
+            });
+        }
+        professorErrors.slice(0, 2).forEach((e) => {
+            items.push({
+                id: `prof-${e.id}`,
+                type: 'info',
+                title: e.title,
+                desc: e.description,
+            });
+        });
+
         if (velocity) {
             const bottleneck = velocity.reduce((prev, curr) =>
                 (curr.count > prev.count && curr.avg_hours_idle > 24) ? curr : prev, velocity[0]);
@@ -595,7 +633,7 @@ export function RevenueMetrics() {
                             <div className="bg-background border border-border rounded-2xl p-5 h-fit">
                                 <div className="flex items-center gap-2 mb-4">
                                     <Sparkles size={15} className="text-indigo-400" />
-                                    <span className="text-sm font-semibold text-foreground">Recomendações da IA</span>
+                                    <span className="text-sm font-semibold text-foreground">IA Professor de Vendas</span>
                                 </div>
                                 <div className="space-y-3">
                                     {recommendations.map(r => {

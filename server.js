@@ -1568,6 +1568,220 @@ Opções:
   }
 }
 
+const ORCHESTRATOR_INTENTS = new Set([
+  'greeting',
+  'product_interest',
+  'price_question',
+  'appointment_request',
+  'support_request',
+  'negotiation',
+  'purchase_intent',
+  'general_question',
+]);
+
+const ORCHESTRATOR_AGENTS = new Set([
+  'SDR_AGENT',
+  'SALES_AGENT',
+  'SCHEDULER_AGENT',
+  'SUPPORT_AGENT',
+  'HUMAN',
+]);
+
+const ORCHESTRATOR_ACTIONS = new Set([
+  'respond',
+  'schedule_meeting',
+  'present_product',
+  'delegate_human',
+  'support_answer',
+]);
+
+function mapOrchestratorIntentToLegacyIntent(intent) {
+  const normalized = String(intent || '').trim().toLowerCase();
+  const map = {
+    greeting: 'neutral',
+    product_interest: 'asked_info',
+    price_question: 'asked_price',
+    appointment_request: 'accepted_meeting',
+    support_request: 'asked_info',
+    negotiation: 'gave_objection',
+    purchase_intent: 'buying_intent',
+    general_question: 'asked_info',
+  };
+  return map[normalized] || 'neutral';
+}
+
+function normalizeLeadTemperature(scoreValue) {
+  const score = Number(scoreValue || 0);
+  if (score >= 70) return 'QUENTE';
+  if (score >= 40) return 'MORNO';
+  return 'FRIO';
+}
+
+function deriveFallbackOrchestratorDecision(userText = '', leadTemperature = 'FRIO') {
+  const normalized = String(userText || '').toLowerCase();
+  const has = (...terms) => terms.some((t) => normalized.includes(t));
+
+  let intent = 'general_question';
+  let selectedAgent = 'SDR_AGENT';
+  let action = 'respond';
+
+  if (has('humano', 'atendente', 'vendedor', 'pessoa')) {
+    intent = 'negotiation';
+    selectedAgent = 'HUMAN';
+    action = 'delegate_human';
+  } else if (has('suporte', 'erro', 'não funciona', 'nao funciona', 'problema técnico', 'problema tecnico')) {
+    intent = 'support_request';
+    selectedAgent = 'SUPPORT_AGENT';
+    action = 'support_answer';
+  } else if (has('reunião', 'reuniao', 'agendar', 'agenda', 'horário', 'horario', 'demonstração', 'demonstracao')) {
+    intent = 'appointment_request';
+    selectedAgent = 'SCHEDULER_AGENT';
+    action = 'schedule_meeting';
+  } else if (has('preço', 'preco', 'valor', 'quanto custa', 'investimento', 'proposta')) {
+    intent = 'price_question';
+    selectedAgent = 'SALES_AGENT';
+    action = 'present_product';
+  } else if (has('comprar', 'fechar', 'contratar', 'quero avançar', 'quero avancar')) {
+    intent = 'purchase_intent';
+    selectedAgent = 'SALES_AGENT';
+    action = 'present_product';
+  } else if (has('oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite')) {
+    intent = 'greeting';
+    selectedAgent = 'SDR_AGENT';
+    action = 'respond';
+  } else if (has('produto', 'serviço', 'servico', 'como funciona', 'detalhes', 'informações', 'informacoes')) {
+    intent = 'product_interest';
+    selectedAgent = 'SDR_AGENT';
+    action = 'respond';
+  }
+
+  if (leadTemperature === 'QUENTE' && selectedAgent !== 'SUPPORT_AGENT' && has('proposta personalizada', 'falar com humano')) {
+    selectedAgent = 'HUMAN';
+    action = 'delegate_human';
+  }
+
+  return {
+    intent,
+    lead_temperature: leadTemperature,
+    selected_agent: selectedAgent,
+    action,
+    notes: 'fallback_rule_engine',
+  };
+}
+
+async function runConversationOrchestrator({ orgId, remoteJid, userText, recentMessages = [], conversationHistory = [], leadTemperature = 'FRIO' }) {
+  const companyRes = await pool.query(
+    `SELECT company_name, main_product, product_price, agent_objective
+       FROM ia_configs
+      WHERE user_id IN (SELECT id FROM users WHERE organization_id = $1)
+      ORDER BY updated_at DESC NULLS LAST
+      LIMIT 1`,
+    [orgId]
+  );
+
+  const companyProfile = companyRes.rows[0] || {};
+  const recentMessagesText = recentMessages.map(m => `${m.role}: ${String(m.content || '').slice(0, 220)}`).join('\n');
+  const historyText = conversationHistory.map(m => `${m.role}: ${String(m.content || '').slice(0, 140)}`).join('\n');
+  const summary = recentMessages.slice(-8).map(m => String(m.content || '')).join(' | ').slice(0, 1200);
+
+  const systemPrompt = `Você é o Conversation Orchestrator da plataforma Kogna.
+
+Sua função NÃO é responder diretamente o cliente.
+
+Sua função é analisar cada mensagem recebida e decidir qual ação deve ser tomada dentro do sistema.
+
+A Kogna é um Revenue Operating System para WhatsApp que utiliza múltiplos agentes de inteligência artificial especializados.
+
+Você é responsável por:
+1 analisar a mensagem do cliente
+2 entender o contexto da conversa
+3 identificar a intenção do cliente
+4 avaliar a temperatura do lead
+5 decidir qual agente deve atuar
+6 decidir se alguma ferramenta do sistema deve ser executada
+7 decidir se a conversa deve continuar com IA ou ser delegada para humano
+
+CONTEXTO DISPONÍVEL
+Empresa:
+${JSON.stringify(companyProfile)}
+
+Resumo da conversa:
+${summary}
+
+Temperatura do lead:
+${leadTemperature}
+
+Últimas mensagens:
+${recentMessagesText}
+
+Histórico relevante:
+${historyText}
+
+CLASSIFICAÇÃO DE INTENÇÃO (use apenas uma):
+greeting, product_interest, price_question, appointment_request, support_request, negotiation, purchase_intent, general_question
+
+TEMPERATURA DO LEAD (use apenas): FRIO, MORNO, QUENTE
+
+AGENTES DISPONÍVEIS:
+SDR_AGENT, SALES_AGENT, SCHEDULER_AGENT, SUPPORT_AGENT, HUMAN
+
+REGRAS:
+- Início da conversa -> SDR_AGENT
+- Interesse em produto -> SDR_AGENT ou SALES_AGENT
+- Pergunta preço -> SALES_AGENT
+- Pedido de reunião -> SCHEDULER_AGENT
+- Pergunta técnica -> SUPPORT_AGENT
+- Delegar para HUMANO se lead QUENTE e pedir humano/proposta personalizada
+
+Retorne APENAS JSON no formato:
+{
+  "intent": "",
+  "lead_temperature": "",
+  "selected_agent": "",
+  "action": "",
+  "notes": ""
+}
+
+action pode ser: respond, schedule_meeting, present_product, delegate_human, support_answer.`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      max_tokens: 220,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userText || '' },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content;
+    if (!raw) return deriveFallbackOrchestratorDecision(userText, leadTemperature);
+
+    const parsed = JSON.parse(raw);
+    const intent = String(parsed.intent || '').trim();
+    const selectedAgent = String(parsed.selected_agent || '').trim();
+    const action = String(parsed.action || '').trim();
+    const normalizedTemp = String(parsed.lead_temperature || leadTemperature).toUpperCase().trim();
+
+    if (!ORCHESTRATOR_INTENTS.has(intent) || !ORCHESTRATOR_AGENTS.has(selectedAgent) || !ORCHESTRATOR_ACTIONS.has(action)) {
+      return deriveFallbackOrchestratorDecision(userText, leadTemperature);
+    }
+
+    return {
+      intent,
+      lead_temperature: ['FRIO', 'MORNO', 'QUENTE'].includes(normalizedTemp) ? normalizedTemp : leadTemperature,
+      selected_agent: selectedAgent,
+      action,
+      notes: String(parsed.notes || 'llm_orchestrator').slice(0, 500),
+    };
+  } catch (err) {
+    log(`[ORCHESTRATOR] LLM error for ${remoteJid}: ${err.message}`);
+    return deriveFallbackOrchestratorDecision(userText, leadTemperature);
+  }
+}
+
 // ─── CSE: Stage transition rules (pure backend, no LLM) ──────────────────────
 const STAGE_GOALS = {
   novo: 'Saudar o lead e iniciar qualificação. Fazer apenas UMA pergunta de qualificação.',
@@ -2271,32 +2485,36 @@ async function executeSendFollowupMessage(orgId, leadId, instanceName, message, 
 
 const AGENT_DEFINITIONS = {
 
-  sdr: {
-    name: 'AI SDR',
+  SDR_AGENT: {
+    name: 'SDR Agent',
     role: 'Especialista em prospecção e qualificação de leads via WhatsApp.',
     mission: 'Identificar o perfil do lead, entender sua necessidade principal e qualificá-lo para avançar no funil. Não fazer pitch de produto. Fazer perguntas cirúrgicas.',
     tone: 'Curioso e acolhedor. Mensagens curtas. Uma pergunta por vez. Nunca parecendo um robô.',
+    models: { recommended: 'gpt-4o-mini', profile: 'leve' },
   },
 
-  closer: {
-    name: 'AI Closer',
+  SALES_AGENT: {
+    name: 'Sales Agent',
     role: 'Especialista em apresentação de valor, gestão de objeções e fechamento.',
     mission: 'Conectar a solução à dor específica do lead usando o método FAB. Defender o investimento com ROI. Usar LAER para objeções. Nunca dar desconto espontaneamente.',
     tone: 'Confiante, direto e orientado a resultado. Empático, mas sem enrolar.',
+    models: { recommended: 'gpt-4o', profile: 'capaz' },
   },
 
-  scheduler: {
-    name: 'AI Scheduler',
+  SCHEDULER_AGENT: {
+    name: 'Scheduler Agent',
     role: 'Especialista em agendamento de reuniões e demonstrações via WhatsApp.',
     mission: 'Confirmar data e horário usando as ferramentas disponíveis. Oferecer exatamente 2 opções. Nunca fazer perguntas abertas de horário. Fechar o agendamento neste turno.',
     tone: 'Eficiente e direto. Sem rodeios. Foco 100% em confirmar o next step.',
+    models: { recommended: 'gpt-4o-mini', profile: 'leve' },
   },
 
-  followup: {
-    name: 'AI Follow-up',
-    role: 'Especialista em reengajamento de leads inativos.',
-    mission: 'Reentrar na conversa com contexto do histórico anterior. Trazer um novo ângulo de valor ou dado relevante. Fazer 1 pergunta simples que force uma resposta curta. Nunca começar com "Oi, tudo bem?".',
-    tone: 'Relevante e surpreendente. Curto. Sem desespero. Mostra que lembra do lead.',
+  SUPPORT_AGENT: {
+    name: 'Support Agent',
+    role: 'Especialista em suporte e dúvidas técnicas.',
+    mission: 'Resolver dúvidas técnicas com precisão e linguagem simples. Se não houver contexto suficiente, solicitar apenas os dados necessários para concluir o suporte.',
+    tone: 'Claro, objetivo e orientado à solução.',
+    models: { recommended: 'gpt-4o-mini', profile: 'leve' },
   },
 
   analyst: {
@@ -2310,13 +2528,13 @@ const AGENT_DEFINITIONS = {
 
 // ─── Stage → Agent Router ─────────────────────────────────────────────────────
 const STAGE_TO_AGENT = {
-  novo: 'sdr',
-  qualificacao: 'sdr',
-  diagnostico: 'closer',
-  apresentacao: 'closer',
-  proposta: 'closer',
-  agendamento: 'scheduler',
-  followup: 'followup',
+  novo: 'SDR_AGENT',
+  qualificacao: 'SDR_AGENT',
+  diagnostico: 'SALES_AGENT',
+  apresentacao: 'SALES_AGENT',
+  proposta: 'SALES_AGENT',
+  agendamento: 'SCHEDULER_AGENT',
+  followup: 'SDR_AGENT',
 };
 
 /**
@@ -2325,8 +2543,16 @@ const STAGE_TO_AGENT = {
  * @returns {Object} Agent definition from AGENT_DEFINITIONS
  */
 function resolveAgent(stage) {
-  const key = STAGE_TO_AGENT[stage] || 'sdr';
+  const key = STAGE_TO_AGENT[stage] || 'SDR_AGENT';
   return { key, ...AGENT_DEFINITIONS[key] };
+}
+
+function resolveAgentByOrchestrator(agentName, stage) {
+  const orchestratorName = String(agentName || '').trim();
+  if (orchestratorName && AGENT_DEFINITIONS[orchestratorName]) {
+    return { key: orchestratorName, ...AGENT_DEFINITIONS[orchestratorName] };
+  }
+  return resolveAgent(stage);
 }
 
 // ── END Multi-Agent Architecture ──────────────────────────────────────────────
@@ -4404,6 +4630,90 @@ app.get("/api/dashboard/metrics", verifyJWT, async (req, res) => {
     });
   } catch (err) {
     log("GET /api/dashboard/metrics error: " + err.toString());
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/dashboard/sales-professor", verifyJWT, async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const userRes = await pool.query("SELECT organization_id FROM users WHERE id = $1", [userId]);
+    const organizationId = userRes.rows[0]?.organization_id;
+    if (!organizationId) {
+      return res.json({
+        errors: [],
+        summary: {
+          ignored_hot_leads: 0,
+          avg_response_time_hours: 0,
+          lost_by_delay: 0,
+          opportunities_missed: 0,
+        },
+      });
+    }
+
+    const [insightsRes, avgResponseRes, ignoredHotRes, missedRes] = await Promise.all([
+      pool.query(
+        `SELECT i.id, i.insight_type, i.message, i.created_at, l.name as lead_name
+           FROM vendedor_insights i
+           LEFT JOIN leads l ON l.id = i.lead_id
+          WHERE i.organization_id = $1
+          ORDER BY i.created_at DESC
+          LIMIT 20`,
+        [organizationId]
+      ),
+      pool.query(
+        `SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (first_owner_reply_at - handoff_at))/3600),0) AS avg_hours
+           FROM (
+             SELECT l.id, l.handoff_at,
+                    (SELECT MIN(cm.created_at)
+                     FROM chat_messages cm
+                     WHERE cm.lead_id = l.id AND cm.role = 'owner' AND cm.created_at > l.handoff_at) AS first_owner_reply_at
+               FROM leads l
+              WHERE l.organization_id = $1 AND l.handoff_at IS NOT NULL
+           ) q
+          WHERE first_owner_reply_at IS NOT NULL`,
+        [organizationId]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS count
+           FROM leads
+          WHERE organization_id = $1
+            AND (intent_label = 'HOT' OR intent_label = 'CRITICAL')
+            AND (last_contact IS NULL OR last_contact < NOW() - INTERVAL '2 hours')`,
+        [organizationId]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS count
+           FROM leads
+          WHERE organization_id = $1
+            AND LOWER(COALESCE(status,'')) IN ('perdido','lost','descartado','unqualified')
+            AND (intent_label = 'HOT' OR intent_label = 'CRITICAL')`,
+        [organizationId]
+      ),
+    ]);
+
+    const errors = insightsRes.rows.map((r) => ({
+      id: r.id,
+      type: r.insight_type,
+      title: r.insight_type === 'delay' ? 'Lead perdido por demora' : 'Padrão de melhoria detectado',
+      description: r.message,
+      lead_name: r.lead_name,
+      created_at: r.created_at,
+    }));
+
+    res.json({
+      errors,
+      summary: {
+        ignored_hot_leads: ignoredHotRes.rows[0]?.count || 0,
+        avg_response_time_hours: Number(avgResponseRes.rows[0]?.avg_hours || 0),
+        lost_by_delay: insightsRes.rows.filter((i) => i.insight_type === 'delay').length,
+        opportunities_missed: missedRes.rows[0]?.count || 0,
+      },
+    });
+  } catch (err) {
+    log("GET /api/dashboard/sales-professor error: " + err.toString());
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -10226,7 +10536,7 @@ const generateWeeklyCoachingReports = async (orgId) => {
 };
 
 // Endpoint p/ disparar o envio (pode ser chamado por um cron)
-app.post("/api/coaching/trigger-weekly-report", verifyJWT, async (req, res) => {
+const triggerSalesProfessorWeeklyReport = async (req, res) => {
   try {
     const orgId = await getOrgId(req);
     if (!orgId) return res.status(401).json({ error: "Unauthorized" });
@@ -10236,7 +10546,10 @@ app.post("/api/coaching/trigger-weekly-report", verifyJWT, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.post("/api/coaching/trigger-weekly-report", verifyJWT, triggerSalesProfessorWeeklyReport);
+app.post("/api/sales-professor/trigger-weekly-report", verifyJWT, triggerSalesProfessorWeeklyReport);
 
 // ─── VENDEDORES CRUD ──────────────────────────────────────
 
@@ -12805,11 +13118,7 @@ async function processAIResponse(
     const currentDate = now.toLocaleString("pt-BR", dateOptions);
     const currentTime = now.toLocaleString("pt-BR", timeOptions);
 
-    // ── CSE: Extract intent early (only needs message text) ─────────────────────
     const userText = inputMessages.map(m => m.content || m.text || '').join(' ');
-    const userIntent = await extractUserIntent(userText);
-    log(`[CSE] lead=${remoteJid} intent=${userIntent}`);
-    // ── END CSE early intent ─────────────────────────────────────────────────────
 
     // --- Compose stage-based system prompt ---
     // Stage directive (CSE memory block) will be appended after Koins/user lookup below.
@@ -12841,18 +13150,76 @@ async function processAIResponse(
       return; // Stop processing
     }
 
-    // ── CSE: Load state (now user/org is available) ─────────────────────────────
     const cseOrgId = user.organization_id;
+
+    // Fetch recent history once and reuse in orchestrator + response assembly
+    const historyResult = await pool.query(
+      "SELECT role, content FROM chat_messages WHERE agent_id = $1 AND remote_jid = $2 ORDER BY created_at DESC LIMIT 12",
+      [agent.id, remoteJid],
+    );
+
+    const scoreRes = await pool.query(
+      `SELECT score, temperature FROM opportunity_scores WHERE organization_id = $1 AND lead_id IN (
+        SELECT id FROM leads
+        WHERE organization_id = $1
+          AND (phone = $2 OR phone LIKE $3)
+        ORDER BY last_contact DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) LIMIT 1`,
+      [cseOrgId, remoteJid.split('@')[0], `%${remoteJid.split('@')[0].slice(-11)}%`]
+    );
+    const inferredTemp = scoreRes.rows[0]?.temperature
+      ? String(scoreRes.rows[0].temperature).toUpperCase()
+      : normalizeLeadTemperature(scoreRes.rows[0]?.score);
+
+    const orchestratorDecision = await runConversationOrchestrator({
+      orgId: cseOrgId,
+      remoteJid,
+      userText,
+      recentMessages: historyResult.rows.slice(0, 6).reverse(),
+      conversationHistory: historyResult.rows.slice(0, 12).reverse(),
+      leadTemperature: inferredTemp,
+    });
+
+    log(`[ORCHESTRATOR] lead=${remoteJid} intent=${orchestratorDecision.intent} temp=${orchestratorDecision.lead_temperature} selected_agent=${orchestratorDecision.selected_agent} action=${orchestratorDecision.action} notes=${orchestratorDecision.notes}`);
+
+    const userIntent = mapOrchestratorIntentToLegacyIntent(orchestratorDecision.intent);
+    log(`[CSE] lead=${remoteJid} mapped_intent=${userIntent}`);
+
+    // ── CSE: Load state (now user/org is available) ─────────────────────────────
     const { state: cseState, memory: cseMemory } = await loadConversationState(cseOrgId, agent.id, remoteJid);
-    const { newStage: cseStage, goal: cseGoal, nextExpected: cseNextExpected } = cseState
+    const stageTransition = cseState
       ? determineStageTransition(cseState.lead_stage, userIntent, cseMemory)
       : { newStage: 'qualificacao', goal: STAGE_GOALS['qualificacao'], nextExpected: 'lead_share_context' };
+    let { newStage: cseStage, goal: cseGoal, nextExpected: cseNextExpected } = stageTransition;
+
+    if (orchestratorDecision.selected_agent === 'SCHEDULER_AGENT' || orchestratorDecision.action === 'schedule_meeting') cseStage = 'agendamento';
+    if (orchestratorDecision.selected_agent === 'SALES_AGENT' && ['novo', 'qualificacao'].includes(cseStage)) cseStage = 'apresentacao';
+    if (orchestratorDecision.selected_agent === 'SUPPORT_AGENT') cseStage = 'diagnostico';
+    cseGoal = STAGE_GOALS[cseStage] || cseGoal;
+
     log(`[CSE] stage=${cseStage} for lead=${remoteJid}`);
 
     // Rebuild systemPrompt with the real stage + active agent persona
-    const activeAgent = resolveAgent(cseStage);
+    const activeAgent = resolveAgentByOrchestrator(orchestratorDecision.selected_agent, cseStage);
     log(`[MULTI-AGENT] ${activeAgent.name} handling stage=${cseStage} for lead=${remoteJid}`);
     systemPrompt = buildSystemPrompt({ agent, stage: cseStage, knowledgeBase, currentDate, currentTime, activeAgent });
+
+    if (orchestratorDecision.selected_agent === 'HUMAN' || orchestratorDecision.action === 'delegate_human') {
+      const phone = remoteJid.split('@')[0].replace(/\D/g, '');
+      const leadRes = await pool.query(
+        `SELECT id, name FROM leads
+         WHERE organization_id = $1 AND (phone = $2 OR phone LIKE $3)
+         ORDER BY last_contact DESC NULLS LAST, created_at DESC LIMIT 1`,
+        [cseOrgId, phone, `%${phone.slice(-11)}%`]
+      );
+      if (leadRes.rows[0]?.id) {
+        triggerIntelligentHandoff(agent.id, remoteJid, cseOrgId, leadRes.rows[0].id, leadRes.rows[0].name || 'Lead', userText, 85)
+          .catch(e => log(`[ORCHESTRATOR] handoff error: ${e.message}`));
+      }
+      log(`[ORCHESTRATOR] Human delegation executed for lead=${remoteJid}`);
+      return;
+    }
 
     // Append structured memory + semantic signals block
     systemPrompt += buildCSEStageDirective(cseStage, cseGoal, cseMemory);
@@ -12862,12 +13229,9 @@ async function processAIResponse(
 
     // 1.7 Fetch Last 3 Messages (CSE slim context — not full history)
     // CSE replaces fat history with structured state + 3 recent messages only.
-    const historyResult = await pool.query(
-      "SELECT role, content FROM chat_messages WHERE agent_id = $1 AND remote_jid = $2 ORDER BY created_at DESC LIMIT 6",
-      [agent.id, remoteJid],
-    );
+    const latestHistory = historyResult.rows.slice(0, 6);
 
-    let history = historyResult.rows
+    let history = latestHistory
       .reverse()
       .map((row) => {
         // Handle Tool Calls or Tool Results stored in JSON
