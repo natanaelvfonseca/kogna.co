@@ -14,7 +14,7 @@ import bcrypt from "bcryptjs";
 import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import cron from "node-cron";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2819,6 +2819,31 @@ async function sendProductToLead(orgId, instanceName, remoteJid, leadStage, user
 // ── END Product & Dynamic Offer Engine ───────────────────────────────────────
 
 // ── ONBOARDING V2 SESSION TABLE ───────────────────────────────────────────────
+const ensureMessageBuffer = async () => {
+  try {
+    log('[SYSTEM] Ensuring message_buffer table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS message_buffer (
+        id BIGSERIAL PRIMARY KEY,
+        remote_jid TEXT NOT NULL,
+        agent_id UUID NOT NULL,
+        instance_name TEXT,
+        content TEXT,
+        image_url TEXT,
+        is_audio BOOLEAN DEFAULT FALSE,
+        processed BOOLEAN DEFAULT FALSE,
+        received_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_msg_buffer_lookup ON message_buffer(remote_jid, agent_id, processed, received_at DESC)`);
+    log('[SYSTEM] message_buffer table verified.');
+  } catch (err) {
+    log('[ERROR] ensureMessageBuffer: ' + err.message);
+    throw err;
+  }
+};
+
+// ── ONBOARDING V2 SESSION TABLE ───────────────────────────────────────────────
 const ensureOnboardingSessionsTable = async () => {
   try {
     log('[SYSTEM] Ensuring onboarding_test_sessions table...');
@@ -3369,7 +3394,7 @@ app.post("/api/login", async (req, res) => {
 const onboardingPreviewLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 25,
-  keyGenerator: (req) => req.body?.session_id || req.ip,
+  keyGenerator: (req) => req.body?.session_id || ipKeyGenerator(req.ip),
   message: { error: 'Limite de mensagens de teste atingido.' }
 });
 
