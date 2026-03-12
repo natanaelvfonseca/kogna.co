@@ -363,6 +363,7 @@ app.post("/api/chats/toggle-pause", verifyJWT, async (req, res) => {
   }
 });
 
+<<<<<<< ours
 // Helper to extract text from various file types
 async function getAgentKnowledge(trainingFiles) {
   log(
@@ -370,6 +371,37 @@ async function getAgentKnowledge(trainingFiles) {
   );
 
   if (!trainingFiles) return "";
+=======
+/**
+ * Calculates the deterministic Opportunity Score for a lead based on CIL data.
+ * Updates the \`opportunity_scores\` table and optionally moves the lead in the pipeline.
+ */
+async function calculateOpportunityScore(orgId, leadId) {
+  try {
+    const normalizeText = (value = "") =>
+      String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
+    // 1. Fetch latest CIL messages for the lead
+    const messagesRes = await pool.query(`
+      SELECT intent, product_interest, stage, urgency, sentiment, objections, created_at
+      FROM conversation_intelligence
+      WHERE organization_id = $1 AND lead_id = $2
+      ORDER BY created_at DESC LIMIT 50
+    `, [orgId, leadId]);
+
+    if (messagesRes.rows.length === 0) return;
+    const messages = messagesRes.rows;
+    const latestMsg = messages[0];
+    const latestIntent = normalizeText(latestMsg.intent);
+    const latestUrgency = normalizeText(latestMsg.urgency);
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
   // Ensure we have an array
   let files = trainingFiles;
@@ -387,17 +419,30 @@ async function getAgentKnowledge(trainingFiles) {
     return "";
   }
 
+<<<<<<< ours
   let combinedText = "\n\nBASE DE CONHECIMENTO DISPONÍVEL:\n";
 
   for (const file of files) {
     const filePath = path.resolve(file.path);
     log(`[RAG] Processing file: ${file.originalName} at ${filePath}`);
+=======
+    // --- POSITIVE SIGNALS ---
+    if (latestIntent === 'compra') addSignal('intent_compra', 25);
+
+    const hasPriceRequest = messages.some((m) => {
+      const msgStage = normalizeText(m.stage);
+      const msgIntent = normalizeText(m.intent);
+      return msgStage === 'proposta' || msgIntent === 'comparacao';
+    });
+    if (hasPriceRequest) addSignal('perguntou_preco_ou_forma_pagamento', 20);
+>>>>>>> theirs
 
     if (!fs.existsSync(filePath)) {
       log(`[RAG] File not found: ${filePath}`);
       continue;
     }
 
+<<<<<<< ours
     try {
       if (file.mimeType === "application/pdf" || file.path.endsWith(".pdf")) {
         log(`[RAG] Parsing PDF: ${file.originalName}`);
@@ -424,11 +469,26 @@ async function getAgentKnowledge(trainingFiles) {
     }
   }
 
+<<<<<<< ours
   log(
     `[RAG] Knowledge base text generated. Total length: ${combinedText.length}`,
   );
   return combinedText;
 }
+=======
+=======
+>>>>>>> theirs
+    if (latestUrgency === 'alta') addSignal('urgencia_alta', 15);
+    else if (latestUrgency === 'media') addSignal('urgencia_media', 5);
+
+    if (normalizeText(latestMsg.stage) === 'proposta' && latestIntent === 'compra') addSignal('pediu_proposta', 25);
+
+    // --- NEGATIVE SIGNALS ---
+    if (latestIntent === 'informacao') addSignal('apenas_pesquisando', -5);
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date() });
@@ -455,9 +515,36 @@ app.post("/api/login", async (req, res) => {
     ]);
     const user = result.rows[0];
 
+<<<<<<< ours
     if (!user) {
       log(`Login failed: User not found for email ${email}`);
       return res.status(401).json({ error: "E-mail ou senha incorretos" });
+=======
+    // Target Pipeline Stage mapping — uses real org columns instead of hardcoded names
+    let targetStage = null; // resolved below after fetching real columns
+    try {
+      const colsRes = await pool.query(
+        `SELECT title
+           FROM lead_columns
+          WHERE organization_id = $1
+             OR user_id IN (SELECT id FROM users WHERE organization_id = $1)
+          ORDER BY order_index ASC`,
+        [orgId]
+      );
+      const cols = colsRes.rows.map(r => r.title);
+      if (cols.length > 0) {
+        // Map score to column by relative position:
+        // 0–20 → col[0], 21–40 → col[1], 41–60 → col[2], 61–80 → col[3], 81–100 → col[4]
+        let targetColIndex = 0;
+        if (score >= 81 && cols.length > 4) targetColIndex = 4;
+        else if (score >= 61 && cols.length > 3) targetColIndex = 3;
+        else if (score >= 41 && cols.length > 2) targetColIndex = 2;
+        else if (score >= 21 && cols.length > 1) targetColIndex = 1;
+        targetStage = cols[targetColIndex];
+      }
+    } catch (colErr) {
+      log(`[OSE] Could not fetch org columns, skipping pipeline movement: ${colErr.message}`);
+>>>>>>> theirs
     }
 
     // Validate password
