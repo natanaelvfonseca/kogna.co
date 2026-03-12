@@ -2845,34 +2845,47 @@ const ensureOnboardingSessionsTable = async () => {
 };
 // ── END ONBOARDING V2 SESSION TABLE ──────────────────────────────────────────
 
-// Inicia as conexões e migrações em segundo plano para não travar o boot da Vercel
-initPool().then(() => {
-  ensureLeadsColumns();
-  setTimeout(ensureMessageBuffer, 3000);
-  setTimeout(ensureRevenueOSColumns, 5000); // Revenue OS: ensure intent_label, last_ia_briefing, assigned_to
-  setTimeout(ensureCoachingTables, 7000); // Revenue OS Coaching: insights table
-  setTimeout(ensureConversationIntelligenceTables, 9000); // CIL: Conversation Intelligence tables
-  setTimeout(ensureOpportunityScoresTable, 10000); // OSE: Opportunity Scores table
-  setTimeout(ensureFollowupEngineTables, 12000); // AI Follow-up Engine tables
-  setTimeout(ensureIndustryProfileTables, 14000); // Industry Accelerator Layer tables
-  setTimeout(ensureConversationStateTables, 16000); // CSE: Conversation State Engine tables
-  setTimeout(ensureProductEngineTables, 18000);      // Product & Dynamic Offer Engine tables
-  setTimeout(ensureOnboardingSessionsTable, 20000);   // Onboarding V2 test sessions table
+let bootstrapPromise = null;
+let cronStarted = false;
 
-  // Start Follow-up Engine cron jobs (fire after tables are ready)
-  setTimeout(() => {
-    // Process queue every 1 minute
+async function ensureCoreBootstrap() {
+  if (!bootstrapPromise) {
+    bootstrapPromise = (async () => {
+      await initPool();
+      await ensureLeadsColumns();
+      await ensureMessageBuffer();
+      await ensureRevenueOSColumns();
+      await ensureCoachingTables();
+      await ensureConversationIntelligenceTables();
+      await ensureOpportunityScoresTable();
+      await ensureFollowupEngineTables();
+      await ensureIndustryProfileTables();
+      await ensureConversationStateTables();
+      await ensureProductEngineTables();
+      await ensureOnboardingSessionsTable();
+      log('[BOOT] Core bootstrap completed.');
+    })().catch((e) => {
+      log("[BOOT] Startup error: " + e.message);
+      bootstrapPromise = null;
+      throw e;
+    });
+  }
+
+  await bootstrapPromise;
+
+  if (!cronStarted) {
     cron.schedule('* * * * *', () => {
       processFollowupQueue().catch(err => log(`[FOLLOWUP CRON] processQueue: ${err.message}`));
     });
-    // Run Conversation Intelligence Engine once daily at 2am
     cron.schedule('0 2 * * *', () => {
       runConversationIntelligenceEngine().catch(err => log(`[CIE CRON] error: ${err.message}`));
     });
+    cronStarted = true;
     log('[FOLLOWUP] Cron jobs started: queue processor (1m), CIE engine (daily 2am)');
-  }, 15000);
+  }
+}
 
-}).catch(e => log("Startup error: " + e.message));
+ensureCoreBootstrap().catch((e) => log('[BOOT] Warmup failed (will retry on request): ' + e.message));
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
@@ -2883,6 +2896,15 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use((req, res, next) => {
   log(`${req.method} ${req.url}`);
   next();
+});
+
+app.use(async (_req, _res, next) => {
+  try {
+    await ensureCoreBootstrap();
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Helper to check DB health before query
@@ -8300,27 +8322,17 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
 
       // Deduct Koins for Input Processing (Hearing/Seeing)
       if (reductionAmount > 0) {
-        // Wait, agent doesn't have user_id directly here.
-        // We need to get the USER ID. We found the agent via instance name.
-        // Agent -> WhatsappInstance -> User
-
-        // Let's fetch User ID from Agent relation again to be sure
+        // Bill the owner of the WhatsApp instance directly to avoid ambiguous org joins.
         const userRes = await pool.query(
-          `
-                    SELECT u.id, u.koins_balance 
-                    FROM users u
-                    JOIN whatsapp_instances wi ON wi.user_id = u.id
-                    JOIN agents a ON a.whatsapp_instance_id = wi.id
-                    WHERE a.id = $1
-  `,
-          [agent.id],
+          `SELECT id, koins_balance FROM users WHERE id = $1 LIMIT 1`,
+          [instance.user_id],
         );
 
         const user = userRes.rows[0];
         if (user) {
           if (user.koins_balance < reductionAmount) {
             log(
-              `[AI] Insufficient Koins for multimodal processing.Need ${reductionAmount}, has ${user.koins_balance}.`,
+              `[AI] Insufficient Koins for multimodal processing. Need ${reductionAmount}, has ${user.koins_balance} (user ${user.id}).`,
             );
             return res.json({ success: true }); // Stop processing
           }
@@ -8412,7 +8424,7 @@ VALUES($1, $2, $3, $4, $5, $6) RETURNING id`,
       log(`[BUFFER] Processing batch of ${inputMessages.length} message(s) for ${remoteJid}`);
 
       // Process all buffered messages together in one AI call
-      await processAIResponse(agent, remoteJid, instanceName, inputMessages);
+      await processAIResponse(agent, remoteJid, instanceName, inputMessages, instance.user_id);
 
       // ── CIL: Fire-and-forget intelligence analysis ──
       // Build combined text from the batch, ignoring audio-only messages
@@ -9745,7 +9757,7 @@ app.post("/api/evolution/webhook", async (req, res) => {
     await cancelFollowupOnReply(agent.organization_id, remoteJid);
 
     // 5. Trigger AI Processing
-    await processAIResponse(agent, remoteJid, instanceName, [inputMessage]);
+    await processAIResponse(agent, remoteJid, instanceName, [inputMessage], userId);
 
     res.status(200).send("OK");
   } catch (err) {
@@ -12681,9 +12693,12 @@ async function ensureRevenueOSColumns() {
   try {
     await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS intent_label VARCHAR(20) DEFAULT 'COLD'`);
     await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_ia_briefing TEXT`);
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_ia_briefing_at TIMESTAMPTZ`);
     await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_to UUID`);
     await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_interaction_at TIMESTAMPTZ`);
-    log('[REVENUE-OS] DB columns ensured: intent_label, last_ia_briefing, assigned_to, last_interaction_at');
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS handoff_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS handoff_brief TEXT`);
+    log('[REVENUE-OS] DB columns ensured: intent_label, last_ia_briefing, last_ia_briefing_at, assigned_to, last_interaction_at, handoff_at, handoff_brief');
   } catch (err) {
     log(`[REVENUE-OS] Column ensure error (non-critical): ${err.message}`);
   }
@@ -13070,6 +13085,7 @@ async function processAIResponse(
   remoteJid,
   instanceName,
   inputMessages = [],
+  billingUserId = null,
 ) {
   try {
     log(
@@ -13131,16 +13147,22 @@ async function processAIResponse(
     });
 
     // 1.6 Check Koins Balance
-    const userQuery = await pool.query(
-      `
-            SELECT u.id, u.koins_balance, u.organization_id
+    const userQuery = billingUserId
+      ? await pool.query(
+        `SELECT id, koins_balance, organization_id FROM users WHERE id = $1 LIMIT 1`,
+        [billingUserId]
+      )
+      : await pool.query(
+        `
+          SELECT u.id, u.koins_balance, u.organization_id
             FROM users u
             JOIN whatsapp_instances wi ON wi.user_id = u.id
             JOIN agents a ON a.whatsapp_instance_id = wi.id
-            WHERE a.id = $1
-            `,
-      [agent.id],
-    );
+           WHERE a.id = $1
+           LIMIT 1
+        `,
+        [agent.id],
+      );
 
     const user = userQuery.rows[0];
     if (!user || user.koins_balance <= 0) {
