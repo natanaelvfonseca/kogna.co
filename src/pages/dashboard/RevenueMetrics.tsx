@@ -548,19 +548,18 @@ export function RevenueMetrics() {
                         subtitle="Leads que precisam de ação agora e insights gerados pela IA"
                         color="text-orange-400"
                     />
-                    <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-
-                        {/* Lead Heat Map — spans 3 cols */}
+                    <div className="grid grid-cols-1 gap-4">
                         <div className="bg-background border border-border rounded-2xl p-5">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
                                     <Flame size={15} className="text-orange-400" />
                                     <span className="text-sm font-semibold text-foreground">Ações Necessárias</span>
                                 </div>
+                                <span className="text-xs text-muted-foreground">{urgencyCounts.now + urgencyCounts.today + urgencyCounts.at_risk} leads monitorados</span>
                             </div>
 
                             {/* Tabs */}
-                            <div className="flex gap-2 mb-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                                 {(['now', 'today', 'at_risk'] as const).map(tab => {
                                     const cfg = URGENCY_CONFIG[tab];
                                     const Icon = cfg.icon;
@@ -569,19 +568,21 @@ export function RevenueMetrics() {
                                         <button
                                             key={tab}
                                             onClick={() => setUrgencyTab(tab)}
-                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${urgencyTab === tab ? `${cfg.bg} ${cfg.border} ${cfg.color}` : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                                            className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all border ${urgencyTab === tab ? `${cfg.bg} ${cfg.border} ${cfg.color}` : 'bg-muted/10 border-border/40 text-muted-foreground hover:text-foreground hover:border-border'}`}
                                         >
-                                            <Icon size={12} />
-                                            {cfg.label}
-                                            {count > 0 && <span className={`w-4 h-4 rounded-full ${cfg.dot} flex items-center justify-center text-[9px] text-white font-black`}>{count}</span>}
+                                            <span className="flex items-center gap-2">
+                                                <Icon size={12} />
+                                                {cfg.label}
+                                            </span>
+                                            <span className={`min-w-5 h-5 px-1 rounded-full ${count > 0 ? cfg.dot : 'bg-muted/50'} flex items-center justify-center text-[10px] ${count > 0 ? 'text-white' : 'text-muted-foreground'} font-black`}>{count}</span>
                                         </button>
                                     );
                                 })}
                             </div>
 
                             {/* Lead List */}
-                            {urgencyLoading ? <Skeleton className="h-64" /> : urgencyLeads.length === 0 ? (
-                                <div className="h-48 flex flex-col items-center justify-center gap-2 text-center">
+                            {urgencyLoading ? <Skeleton className="h-72" /> : urgencyLeads.length === 0 ? (
+                                <div className="h-56 flex flex-col items-center justify-center gap-2 text-center bg-muted/10 border border-border/30 rounded-xl">
                                     <div className="w-10 h-10 bg-muted/20 rounded-full flex items-center justify-center">
                                         <CheckCircle size={20} className="text-emerald-400" />
                                     </div>
@@ -589,7 +590,7 @@ export function RevenueMetrics() {
                                     <p className="text-xs text-muted-foreground">Ótimo! Não há leads exigindo ação urgente aqui.</p>
                                 </div>
                             ) : (
-                                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                                     {urgencyLeads.map(lead => {
                                         const cfg = URGENCY_CONFIG[urgencyTab];
                                         const tempColor = lead.intentLabel === 'HOT' ? 'text-orange-400 bg-orange-500/10' : lead.intentLabel === 'WARM' ? 'text-yellow-400 bg-yellow-500/10' : 'text-blue-400 bg-blue-500/10';
@@ -621,22 +622,22 @@ export function RevenueMetrics() {
                             )}
 
                             {/* Action Buttons */}
-                            <div className="flex gap-2 mt-4 pt-4 border-t border-border/40">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4 pt-4 border-t border-border/40">
                                 <button
                                     onClick={() => navigate('/crm')}
-                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-xs font-bold transition-all"
+                                    className="flex items-center justify-center gap-2 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl text-xs font-bold transition-all"
                                 >
                                     <BarChart3 size={13} /> Ver Pipeline
                                 </button>
                                 <button
                                     onClick={() => setUrgencyTab('now')}
-                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-orange-500/20"
+                                    className="flex items-center justify-center gap-2 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-orange-500/20"
                                 >
                                     <Flame size={13} /> Agir Agora
                                 </button>
                                 <button
                                     onClick={() => setUrgencyTab('today')}
-                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-xl text-xs font-bold transition-all"
+                                    className="flex items-center justify-center gap-2 py-2.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 rounded-xl text-xs font-bold transition-all"
                                 >
                                     <AlertTriangle size={13} /> Agir Hoje
                                 </button>
