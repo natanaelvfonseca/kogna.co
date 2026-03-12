@@ -23,7 +23,6 @@ interface ForecastData {
     hot_value: number; warm_value: number; cold_value: number;
     by_stage: { stage: string; value: number; count: number }[];
 }
-interface VelocityStage { stage: string; count: number; avg_hours_idle: number; }
 interface UrgencyLead {
     id: string; name: string; phone?: string; status: string; value: number;
     score: number; intentLabel: 'HOT' | 'WARM' | 'COLD'; briefing?: string; hours_idle: number;
@@ -157,7 +156,6 @@ export function RevenueMetrics() {
         `/api/dashboard/metrics?days=${selectedDays}`, token, [selectedDays]
     );
     const { data: forecast, loading: forecastLoading } = useAPI<ForecastData>('/api/dashboard/forecast', token);
-    const { data: velocity, loading: velocityLoading } = useAPI<VelocityStage[]>('/api/dashboard/velocity', token);
     const { data: urgency, loading: urgencyLoading } = useAPI<UrgencyData>('/api/dashboard/urgency', token);
     const { data: revIntel, loading: revIntelLoading } = useAPI<RevenueIntelligenceData>(
         `/api/dashboard/revenue-intelligence?days=${selectedDays}`, token, [selectedDays]
@@ -210,17 +208,6 @@ export function RevenueMetrics() {
             });
         });
 
-        if (velocity) {
-            const bottleneck = velocity.reduce((prev, curr) =>
-                (curr.count > prev.count && curr.avg_hours_idle > 24) ? curr : prev, velocity[0]);
-            if (bottleneck?.count > 0 && bottleneck?.avg_hours_idle > 24) {
-                items.push({
-                    id: `bot-${bottleneck.stage}`, type: 'warning',
-                    title: `Gargalo em "${bottleneck.stage}"`,
-                    desc: `${bottleneck.count} leads parados por ${fmtHours(bottleneck.avg_hours_idle)}. Priorize contato hoje.`,
-                });
-            }
-        }
         if (forecast?.hot_value && forecast.hot_value > 0) {
             items.push({
                 id: 'hot-leads', type: 'info',
@@ -229,7 +216,7 @@ export function RevenueMetrics() {
             });
         }
         if (items.length === 0) {
-            items.push({ id: 'all-good', type: 'success', title: 'Funil Saudável', desc: 'Nenhum gargalo crítico detectado no momento.' });
+            items.push({ id: 'all-good', type: 'success', title: 'Operação Saudável', desc: 'Nenhum alerta crítico do IA Professor de Vendas no momento.' });
         }
         return items.filter(r => !dismissedRecs.includes(r.id));
     })();
@@ -300,6 +287,35 @@ export function RevenueMetrics() {
                             sub={`Pipeline: ${fmt(forecast?.pipeline_total || 0)}`}
                             loading={forecastLoading}
                         />
+                    </div>
+
+                    <div className="mt-4 bg-background border border-border rounded-2xl p-5">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Sparkles size={15} className="text-indigo-400" />
+                            <span className="text-sm font-semibold text-foreground">IA Professor de Vendas</span>
+                        </div>
+                        <div className="space-y-3">
+                            {recommendations.map(r => {
+                                const rc = recColors[r.type];
+                                return (
+                                    <div key={r.id} className={`relative p-3.5 border rounded-xl ${rc.bg}`}>
+                                        <button
+                                            onClick={() => setDismissedRecs(prev => [...prev, r.id])}
+                                            className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                        <div className="flex items-start gap-2 pr-4">
+                                            <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${rc.dot}`} />
+                                            <div>
+                                                <p className="text-xs font-bold text-foreground">{r.title}</p>
+                                                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{r.desc}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </section>
 
@@ -473,7 +489,7 @@ export function RevenueMetrics() {
                         subtitle="Eficiência operacional do processo de vendas"
                         color="text-emerald-400"
                     />
-                    <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
 
                         {/* AI Volume Chart — spans all cols */}
                         <div className="xl:col-span-5 bg-background border border-border rounded-2xl p-5">
@@ -535,7 +551,7 @@ export function RevenueMetrics() {
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
 
                         {/* Lead Heat Map — spans 3 cols */}
-                        <div className="xl:col-span-3 bg-background border border-border rounded-2xl p-5">
+                        <div className="bg-background border border-border rounded-2xl p-5">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
                                     <Flame size={15} className="text-orange-400" />
@@ -627,77 +643,6 @@ export function RevenueMetrics() {
                             </div>
                         </div>
 
-                        {/* AI Recommendations + Bottleneck — spans 2 cols */}
-                        <div className="xl:col-span-2 space-y-4">
-                            {/* Recommendations */}
-                            <div className="bg-background border border-border rounded-2xl p-5 h-fit">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Sparkles size={15} className="text-indigo-400" />
-                                    <span className="text-sm font-semibold text-foreground">IA Professor de Vendas</span>
-                                </div>
-                                <div className="space-y-3">
-                                    {recommendations.map(r => {
-                                        const rc = recColors[r.type];
-                                        return (
-                                            <div key={r.id} className={`relative p-3.5 border rounded-xl ${rc.bg}`}>
-                                                <button
-                                                    onClick={() => setDismissedRecs(prev => [...prev, r.id])}
-                                                    className="absolute top-2.5 right-2.5 text-muted-foreground hover:text-foreground transition-colors"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                                <div className="flex items-start gap-2 pr-4">
-                                                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${rc.dot}`} />
-                                                    <div>
-                                                        <p className="text-xs font-bold text-foreground">{r.title}</p>
-                                                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{r.desc}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Bottleneck Detection */}
-                            <div className="bg-background border border-border rounded-2xl p-5">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <AlertTriangle size={15} className="text-amber-400" />
-                                    <span className="text-sm font-semibold text-foreground">Detecção de Gargalos</span>
-                                </div>
-                                {velocityLoading ? <Skeleton className="h-32" /> : !velocity?.length ? (
-                                    <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">Sem dados</div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {velocity
-                                            .filter(s => s.avg_hours_idle > 24)
-                                            .sort((a, b) => b.avg_hours_idle - a.avg_hours_idle)
-                                            .slice(0, 4)
-                                            .map(s => {
-                                                const severity = s.avg_hours_idle > 72 ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-amber-400 bg-amber-500/10 border-amber-500/20';
-                                                return (
-                                                    <div key={s.stage} className={`flex items-center justify-between p-2.5 rounded-xl border ${severity}`}>
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <Timer size={12} />
-                                                            <span className="text-xs font-medium truncate">{s.stage}</span>
-                                                        </div>
-                                                        <div className="text-right shrink-0 ml-2">
-                                                            <p className="text-xs font-bold">{fmtHours(s.avg_hours_idle)}</p>
-                                                            <p className="text-[9px] opacity-70">{s.count} leads</p>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        {velocity.filter(s => s.avg_hours_idle > 24).length === 0 && (
-                                            <div className="flex items-center gap-2 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
-                                                <CheckCircle size={14} className="text-emerald-400" />
-                                                <span className="text-xs text-emerald-400 font-medium">Nenhum gargalo detectado</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
                     </div>
                 </section>
             </div>
