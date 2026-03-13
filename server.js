@@ -1963,7 +1963,7 @@ app.get("/api/admin/users", verifyJWT, verifyAdmin, async (req, res) => {
             SELECT u.id, u.name, u.email, u.koins_balance, u.created_at, u.role,
                    o.name as company_name, o.plan_type
             FROM users u
-            LEFT JOIN organizations o ON u.organization_id = o.id
+            LEFT JOIN organizations o ON u.organization_id = o.id::text
             ORDER BY u.created_at DESC
         `);
     res.json(users.rows);
@@ -1990,8 +1990,8 @@ app.get("/api/admin/consumption", verifyJWT, verifyAdmin, async (req, res) => {
                 -- Let's assume 1000 tokens ~ 100 Koins for visualization
                 CAST(COALESCE(SUM(cm.prompt_tokens + cm.completion_tokens) / 10, 0) AS INTEGER) as estimated_koins_spent
             FROM users u
-            JOIN organizations o ON u.organization_id = o.id
-            JOIN agents a ON a.organization_id = o.id
+            JOIN organizations o ON u.organization_id = o.id::text
+            JOIN agents a ON a.organization_id = o.id::text
             JOIN chat_messages cm ON cm.agent_id = a.id
             GROUP BY u.id, u.name
             ORDER BY total_cost DESC
@@ -5433,7 +5433,7 @@ async function getOrgId(req) {
 // ── Round Robin: Get Next Vendedor (Logic Only) ──
 async function calculateNextVendedor(orgId) {
   const result = await pool.query(
-    "SELECT * FROM vendedores WHERE organization_id = $1 AND ativo = true ORDER BY leads_recebidos_ciclo ASC",
+    "SELECT * FROM vendedores WHERE organization_id = $1::text AND ativo = true ORDER BY leads_recebidos_ciclo ASC",
     [orgId],
   );
   const vendedores = result.rows;
@@ -5480,7 +5480,7 @@ async function incrementVendedorCounter(vendedorId, orgId) {
 
   // Check reset condition
   const res = await pool.query(
-    "SELECT * FROM vendedores WHERE organization_id = $1 AND ativo = true",
+    "SELECT * FROM vendedores WHERE organization_id = $1::text AND ativo = true",
     [orgId],
   );
   const vendedores = res.rows;
@@ -5507,7 +5507,7 @@ async function incrementVendedorCounter(vendedorId, orgId) {
   // Only reset if significant total leads to avoid frequent resets
   if (allProportional && totalLeads >= vendedores.length * 2) {
     await pool.query(
-      "UPDATE vendedores SET leads_recebidos_ciclo = 0 WHERE organization_id = $1",
+      "UPDATE vendedores SET leads_recebidos_ciclo = 0 WHERE organization_id = $1::text",
       [orgId],
     );
     log(`[ROUND-ROBIN] Cycle reset for org ${orgId}`);
@@ -6586,8 +6586,8 @@ app.get("/api/admin/consumption", verifyAdmin, async (req, res) => {
                 COUNT(cm.id) * 5 as estimated_koins_spent
             FROM chat_messages cm
             JOIN agents a ON a.id = cm.agent_id
-            JOIN organizations o ON o.id = a.organization_id
-            JOIN users u ON u.organization_id = o.id
+            JOIN organizations o ON o.id::text = a.organization_id
+            JOIN users u ON u.organization_id = o.id::text
             GROUP BY u.name
         `);
     res.json(stats.rows);
@@ -8135,7 +8135,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
                   `[AI - TOOL] Warning: Invalid UUID '${targetVendedorId}'. Attempting lookup by name...`,
                 );
                 const vRes = await pool.query(
-                  "SELECT id FROM vendedores WHERE nome ILIKE $1 AND organization_id = $2 LIMIT 1",
+                  "SELECT id FROM vendedores WHERE nome ILIKE $1 AND organization_id = $2::text LIMIT 1",
                   [targetVendedorId.trim(), user.organization_id],
                 );
                 if (vRes.rows.length > 0) {
@@ -8159,7 +8159,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
                 let leadId = null;
                 try {
                   const leadRes = await pool.query(
-                    "SELECT id FROM leads WHERE organization_id = $1 AND (phone LIKE $2 OR mobile_phone LIKE $2) LIMIT 1",
+                    "SELECT id FROM leads WHERE organization_id = $1::text AND phone LIKE $2 LIMIT 1",
                     [orgId, `%${remoteJid.split("@")[0]}%`],
                   );
                   leadId = leadRes.rows[0]?.id;
@@ -8206,7 +8206,7 @@ REGRAS RÍGIDAS PARA AGENDAMENTO (INVISIBLE PROMPT):
               let leadId = null;
               try {
                 const leadRes = await pool.query(
-                  "SELECT id FROM leads WHERE organization_id = $1 AND (phone LIKE $2 OR mobile_phone LIKE $2) LIMIT 1",
+                  "SELECT id FROM leads WHERE organization_id = $1::text AND phone LIKE $2 LIMIT 1",
                   [orgId, `%${remoteJid.split("@")[0]}%`],
                 );
                 leadId = leadRes.rows[0]?.id;
@@ -8855,7 +8855,7 @@ setInterval(async () => {
           try {
             // Find agent for this user/org
             const agentRes = await pool.query(
-              "SELECT id FROM agents WHERE organization_id = $1 LIMIT 1",
+              "SELECT id FROM agents WHERE organization_id = $1::text LIMIT 1",
               [userData.organization_id],
             );
             if (agentRes.rows.length > 0) {
