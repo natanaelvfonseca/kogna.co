@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Search, Paperclip, CheckCheck, X, Play, Pause, UserCheck, BrainCircuit, Lightbulb, Target, MessageSquare, Sparkles, Loader2, TrendingUp, Clock3, ShieldAlert, Bot, ArrowUpRight } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../utils/cn';
 
@@ -78,6 +79,12 @@ interface FollowupStatusData {
     top_objection?: string | null;
 }
 
+interface SellerConversationScope {
+    remoteJid: string;
+    instanceName: string | null;
+    phone?: string | null;
+}
+
 const FOLLOWUP_STATUS_META: Record<string, { label: string; badgeClass: string }> = {
     pending: {
         label: 'Agendado',
@@ -112,6 +119,56 @@ function formatRelativeMoment(timestamp?: number | string | null) {
 
     const diffDays = Math.round(diffHours / 24);
     return `${diffDays}d atras`;
+}
+
+function normalizeBrazilPhoneKey(value?: string | null) {
+    const digits = String(value || '').split('@')[0].replace(/\D/g, '');
+    if (!digits) return '';
+
+    if (digits.startsWith('55')) {
+        const localDigits = digits.slice(2);
+        if (localDigits.length === 11 && localDigits[2] === '9') {
+            return `55${localDigits.slice(0, 2)}${localDigits.slice(3)}`;
+        }
+        return digits;
+    }
+
+    if (digits.length === 11 && digits[2] === '9') {
+        return `${digits.slice(0, 2)}${digits.slice(3)}`;
+    }
+
+    return digits;
+}
+
+function buildScopeKeys(values: Array<string | null | undefined>) {
+    const keys = new Set<string>();
+
+    values.forEach((value) => {
+        if (!value) return;
+
+        const literal = String(value).trim();
+        if (!literal) return;
+
+        keys.add(literal.toLowerCase());
+
+        const normalized = normalizeBrazilPhoneKey(literal);
+        if (normalized) {
+            keys.add(normalized);
+            if (normalized.startsWith('55')) {
+                keys.add(normalized.slice(2));
+            }
+        }
+    });
+
+    return keys;
+}
+
+function buildChatScopeKeys(chat: Chat) {
+    return buildScopeKeys([
+        chat.remoteJid,
+        chat.id,
+        ...(chat.associatedJids ? Array.from(chat.associatedJids) : []),
+    ]);
 }
 
 function getLeadPriorityMeta(temperature?: string, score = 0) {
@@ -221,6 +278,10 @@ function buildRevenueOsTips({
 
 export function LiveChat() {
     const { user, token } = useAuth();
+    const [searchParams] = useSearchParams();
+    const sellerId = searchParams.get('sellerId')?.trim() || null;
+    const requestedInstanceName = searchParams.get('instance')?.trim() || null;
+    const requestedJid = searchParams.get('jid')?.trim() || null;
     const [chats, setChats] = useState<Chat[]>([]);
     const [activeChat, setActiveChat] = useState<Chat | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -248,7 +309,48 @@ export function LiveChat() {
     const [selectedVendedorId, setSelectedVendedorId] = useState<string>('');
     const [activeLeadSummary, setActiveLeadSummary] = useState<LeadSummaryData | null>(null);
     const [activeFollowupStatus, setActiveFollowupStatus] = useState<FollowupStatusData | null>(null);
+    const [sellerConversations, setSellerConversations] = useState<SellerConversationScope[]>([]);
+    const [isLoadingSellerScope, setIsLoadingSellerScope] = useState(false);
+    const requestedChatSelectionRef = useRef(false);
 
+    useEffect(() => {
+        requestedChatSelectionRef.current = false;
+    }, [requestedJid, sellerId, requestedInstanceName]);
+
+    useEffect(() => {
+        if (!sellerId || !token) {
+            setSellerConversations([]);
+            return;
+        }
+
+        let isCancelled = false;
+        setIsLoadingSellerScope(true);
+
+        fetch(`/api/sellers/${sellerId}/conversations?range=30d`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        })
+            .then((response) => response.ok ? response.json() : Promise.reject(new Error('seller_scope_failed')))
+            .then((data) => {
+                if (isCancelled) return;
+                setSellerConversations(Array.isArray(data?.conversations) ? data.conversations : []);
+            })
+            .catch(() => {
+                if (!isCancelled) {
+                    setSellerConversations([]);
+                }
+            })
+            .finally(() => {
+                if (!isCancelled) {
+                    setIsLoadingSellerScope(false);
+                }
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [sellerId, token]);
 
 
     // Fetch Chat Context when activeChat changes
@@ -386,6 +488,11 @@ export function LiveChat() {
     useEffect(() => {
         if (!user) return; // Wait for user
 
+        if (requestedInstanceName) {
+            setInstanceName(requestedInstanceName);
+            setNoInstance(false);
+            return;
+        }
 
         fetch('/api/instance', {
             headers: {
@@ -412,7 +519,7 @@ export function LiveChat() {
                 console.error('LiveChat DEBUG: Failed to load instance name:', err);
                 setNoInstance(true);
             });
-    }, [user, token]);
+    }, [requestedInstanceName, user, token]);
 
     // Fetch vendors for org
     useEffect(() => {
@@ -595,7 +702,7 @@ export function LiveChat() {
         } catch (error) {
             console.error('Failed to fetch chats:', error);
         }
-    }, [instanceName]);
+    }, [instanceName, token]);
 
     useEffect(() => {
         if (instanceName) {
@@ -1153,11 +1260,53 @@ export function LiveChat() {
         return number;
     };
 
-    const filteredChats = chats.filter((chat) =>
+    const sellerConversationKeys = sellerId
+        ? sellerConversations.reduce((accumulator, conversation) => {
+            if (instanceName && conversation.instanceName && conversation.instanceName !== instanceName) {
+                return accumulator;
+            }
+
+            buildScopeKeys([conversation.remoteJid, conversation.phone]).forEach((key) => accumulator.add(key));
+            return accumulator;
+        }, new Set<string>())
+        : new Set<string>();
+
+    const scopedChats = sellerId
+        ? chats.filter((chat) => {
+            const chatKeys = buildChatScopeKeys(chat);
+            return Array.from(chatKeys).some((key) => sellerConversationKeys.has(key));
+        })
+        : chats;
+
+    const filteredChats = scopedChats.filter((chat) =>
         getDisplayName(chat).toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     const activeChatKey = activeChat?.remoteJid || activeChat?.id || null;
+
+    useEffect(() => {
+        if (!sellerId || !activeChat) return;
+
+        const chatStillVisible = scopedChats.some((chat) => (chat.remoteJid || chat.id) === (activeChat.remoteJid || activeChat.id));
+        if (!chatStillVisible) {
+            setActiveChat(null);
+        }
+    }, [sellerId, scopedChats, activeChat]);
+
+    useEffect(() => {
+        if (!requestedJid || requestedChatSelectionRef.current || filteredChats.length === 0) return;
+
+        const requestedKeys = buildScopeKeys([requestedJid]);
+        const targetChat = filteredChats.find((chat) => {
+            const chatKeys = buildChatScopeKeys(chat);
+            return Array.from(chatKeys).some((key) => requestedKeys.has(key));
+        });
+
+        if (targetChat) {
+            setActiveChat(targetChat);
+            requestedChatSelectionRef.current = true;
+        }
+    }, [requestedJid, filteredChats]);
 
     if (!instanceName) {
         if (noInstance) {
@@ -1210,13 +1359,15 @@ export function LiveChat() {
                     <div className="border-b border-black/[0.06] px-5 pb-4 pt-5 dark:border-white/[0.08]">
                         <div className="inline-flex items-center gap-2 rounded-full border border-primary/[0.15] bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary dark:border-primary/20 dark:bg-primary/[0.12]">
                             <Sparkles size={13} />
-                            Atendimento ao vivo
+                            {sellerId ? 'Atendimento do vendedor' : 'Atendimento ao vivo'}
                         </div>
                         <div className="mt-4 flex items-start justify-between gap-4">
                             <div>
                                 <h2 className="text-2xl font-display font-bold tracking-tight text-gray-900 dark:text-white">Conversas</h2>
                                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                                    Monitore conversas e responda com mais contexto.
+                                    {sellerId
+                                        ? 'Live Chat existente filtrado para o vendedor e a linha selecionada.'
+                                        : 'Monitore conversas e responda com mais contexto.'}
                                 </p>
                             </div>
                             <div className="rounded-2xl border border-black/[0.06] bg-white/80 px-3 py-2 text-right dark:border-white/[0.08] dark:bg-white/[0.04]">
@@ -1247,11 +1398,13 @@ export function LiveChat() {
                     </div>
 
                     <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-3 custom-scrollbar">
-                        {isLoadingChats && chats.length === 0 ? (
+                        {((isLoadingChats && chats.length === 0) || (sellerId && isLoadingSellerScope && scopedChats.length === 0)) ? (
                             <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">Carregando conversas...</div>
                         ) : filteredChats.length === 0 ? (
                             <div className="rounded-[24px] border border-dashed border-black/[0.08] bg-white/70 px-4 py-10 text-center text-sm text-gray-500 dark:border-white/[0.10] dark:bg-white/[0.03] dark:text-gray-400">
-                                Nenhuma conversa encontrada para essa busca.
+                                {sellerId
+                                    ? 'Nenhuma conversa deste vendedor foi encontrada nesta linha ou busca.'
+                                    : 'Nenhuma conversa encontrada para essa busca.'}
                             </div>
                         ) : (
                             filteredChats.map((chat) => {

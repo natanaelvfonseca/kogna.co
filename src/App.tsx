@@ -17,6 +17,7 @@ import { MyAIs } from './pages/brain/MyAIs';
 import { Billing } from './pages/billing/Billing';
 import { Agenda } from './pages/agenda/Agenda';
 import { Vendedores } from './pages/vendedores/Vendedores';
+import { SellerProfile } from './pages/vendedores/SellerProfile';
 import { PartnerDashboard } from './pages/partners/PartnerDashboard';
 import { PartnerRegister } from './pages/partners/PartnerRegister';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
@@ -105,6 +106,7 @@ function App() {
                                 <Route path="billing" element={<Billing />} />
                                 <Route path="agenda" element={<Agenda />} />
                                 <Route path="vendedores" element={<Vendedores />} />
+                                <Route path="vendedores/:id" element={<SellerProfile />} />
                                 <Route path="recovery" element={<FollowupManager />} />
                                 <Route path="products" element={<Products />} />
 

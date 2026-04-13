@@ -16,6 +16,29 @@ import jwt from "jsonwebtoken";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cron from "node-cron";
+import {
+  average,
+  buildLeadPhoneIndex,
+  buildPhoneCandidates,
+  buildRiskBadge,
+  buildSellerConversations,
+  buildSellerExecutiveSummary,
+  buildSellerInsights,
+  buildSellerLeadRows,
+  buildSellerScope,
+  buildSellerScore,
+  buildSellerStrengthsAndCriticalPoints,
+  buildTeamAverages,
+  hoursBetween,
+  inferSellerOperationalStatus,
+  isConnectionOnline,
+  isLostStatus,
+  isTerminalStatus,
+  isWonStatus,
+  matchLeadIdForRemoteJid,
+  normalizeBrazilPhoneDigits,
+  normalizeRemoteJid,
+} from "./server/services/sellerPerformance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1828,6 +1851,662 @@ async function doesColumnExist(tableName, columnName) {
 async function getOrganizationIdForUser(userId) {
   const orgRes = await pool.query('SELECT organization_id FROM users WHERE id = $1', [userId]);
   return orgRes.rows[0]?.organization_id || null;
+}
+
+const SELLER_DEFAULT_PERIOD_DAYS = 7;
+const SELLER_MESSAGE_LOOKBACK_DAYS = 45;
+
+function endOfDay(date) {
+  const result = new Date(date);
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+function parseSellerPeriod(query = {}, { defaultDays = SELLER_DEFAULT_PERIOD_DAYS } = {}) {
+  const now = new Date();
+  const range = String(query.range || "").toLowerCase();
+  const daysFromQuery = Number(query.days);
+  let periodStart;
+  let periodEnd = now;
+  let normalizedRange = range || null;
+
+  if (range === "today") {
+    periodStart = startOfDay(now);
+    normalizedRange = "today";
+  } else if (range === "custom" && query.from && query.to) {
+    periodStart = startOfDay(new Date(query.from));
+    periodEnd = endOfDay(new Date(query.to));
+    normalizedRange = "custom";
+  } else {
+    const days = Number.isFinite(daysFromQuery) && daysFromQuery > 0
+      ? daysFromQuery
+      : defaultDays;
+    periodStart = startOfDay(new Date(now.getTime() - (days - 1) * 86400000));
+    normalizedRange = days === 30 ? "30d" : "7d";
+  }
+
+  if (Number.isNaN(periodStart.getTime())) {
+    periodStart = startOfDay(new Date(now.getTime() - (defaultDays - 1) * 86400000));
+    normalizedRange = defaultDays === 30 ? "30d" : "7d";
+  }
+
+  if (Number.isNaN(periodEnd.getTime())) {
+    periodEnd = now;
+  }
+
+  const periodLength = Math.max(1, periodEnd.getTime() - periodStart.getTime());
+  const comparisonEnd = new Date(periodStart.getTime() - 1);
+  const comparisonStart = new Date(comparisonEnd.getTime() - periodLength);
+
+  return {
+    range: normalizedRange,
+    periodStart,
+    periodEnd,
+    comparisonStart,
+    comparisonEnd,
+  };
+}
+
+async function ensureSellerPlatformSchema() {
+  try {
+    await pool.query(`ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+    await pool.query(`ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS role TEXT`);
+    await pool.query(`ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS notes TEXT`);
+    await pool.query(`ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'offline'`);
+    await pool.query(`ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE vendedores ALTER COLUMN email DROP NOT NULL`).catch(() => { });
+    await pool.query(`UPDATE vendedores SET updated_at = COALESCE(updated_at, created_at, NOW()) WHERE updated_at IS NULL`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS seller_connections (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        seller_id UUID NOT NULL REFERENCES vendedores(id) ON DELETE CASCADE,
+        connection_id UUID NOT NULL REFERENCES whatsapp_instances(id) ON DELETE CASCADE,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_connections_unique_pair ON seller_connections(seller_id, connection_id)`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_connections_unique_connection ON seller_connections(connection_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_seller_connections_seller ON seller_connections(seller_id)`);
+  } catch (err) {
+    log(`[SELLERS] Schema ensure error: ${err.message}`);
+  }
+}
+
+setTimeout(() => {
+  ensureSellerPlatformSchema().catch((err) => log(`[SELLERS] Startup ensure error: ${err.message}`));
+}, 3000);
+
+function serializeInstanceRow(row) {
+  return {
+    id: row.id,
+    instance_name: row.instance_name,
+    status: row.status,
+    created_at: row.created_at,
+    connected_agent_id: row.connected_agent_id || null,
+    connected_agent_name: row.connected_agent_name || null,
+    connected_seller_id: row.connected_seller_id || null,
+    connected_seller_name: row.connected_seller_name || null,
+    seller_is_primary: Boolean(row.seller_is_primary),
+  };
+}
+
+function mapConnectionRow(row, instancesById) {
+  const instance = instancesById.get(row.connection_id) || null;
+
+  return {
+    id: row.id,
+    sellerId: row.seller_id,
+    connectionId: row.connection_id,
+    isPrimary: Boolean(row.is_primary),
+    createdAt: row.created_at,
+    instanceId: instance?.id || row.connection_id,
+    instanceName: row.instance_name || instance?.instance_name || null,
+    connectionStatus: row.connection_status || instance?.status || "DISCONNECTED",
+    connectedAgentId: row.connected_agent_id || instance?.connected_agent_id || null,
+    connectedAgentName: row.connected_agent_name || instance?.connected_agent_name || null,
+  };
+}
+
+function buildConnectionsBySeller(connectionRows, instancesById) {
+  const grouped = new Map();
+
+  for (const row of connectionRows) {
+    const current = grouped.get(row.seller_id) || [];
+    current.push(mapConnectionRow(row, instancesById));
+    grouped.set(row.seller_id, current);
+  }
+
+  for (const [sellerId, sellerConnections] of grouped) {
+    sellerConnections.sort((left, right) => {
+      if (left.isPrimary !== right.isPrimary) {
+        return left.isPrimary ? -1 : 1;
+      }
+      return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    });
+    grouped.set(sellerId, sellerConnections);
+  }
+
+  return grouped;
+}
+
+function serializeSellerRow(row, connections = [], explicitStatus = null) {
+  const primaryConnection = connections.find((item) => item.isPrimary) || connections[0] || null;
+  const status = explicitStatus
+    || (row.ativo === false ? "inactive" : row.status || "offline");
+
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.nome,
+    email: row.email || null,
+    phoneNumber: row.whatsapp || null,
+    avatarUrl: row.avatar_url || null,
+    role: row.role || null,
+    notes: row.notes || null,
+    status,
+    active: row.ativo !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || row.created_at,
+    primaryConnectionId: primaryConnection?.connectionId || null,
+    primaryConnection,
+    connections,
+    legacy: {
+      nome: row.nome,
+      whatsapp: row.whatsapp,
+      ativo: row.ativo,
+      porcentagem: row.porcentagem,
+      leads_recebidos_ciclo: row.leads_recebidos_ciclo,
+    },
+  };
+}
+
+async function fetchOrganizationInstances(orgId) {
+  await ensureSellerPlatformSchema();
+  const result = await pool.query(`
+    SELECT wi.*,
+           a.id AS connected_agent_id,
+           a.name AS connected_agent_name,
+           sc.seller_id AS connected_seller_id,
+           v.nome AS connected_seller_name,
+           sc.is_primary AS seller_is_primary
+      FROM whatsapp_instances wi
+      LEFT JOIN agents a ON a.whatsapp_instance_id = wi.id
+      LEFT JOIN seller_connections sc ON sc.connection_id = wi.id
+      LEFT JOIN vendedores v ON v.id = sc.seller_id
+     WHERE wi.organization_id = $1
+     ORDER BY wi.created_at DESC
+  `, [orgId]);
+
+  return result.rows.map(serializeInstanceRow);
+}
+
+async function fetchSellerRows(orgId, sellerId = null) {
+  await ensureSellerPlatformSchema();
+  const params = [orgId];
+  let query = `
+    SELECT *
+      FROM vendedores
+     WHERE organization_id = $1
+  `;
+
+  if (sellerId) {
+    params.push(sellerId);
+    query += ` AND id = $2`;
+  }
+
+  query += ` ORDER BY created_at ASC`;
+
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+async function fetchSellerConnectionRows(orgId, sellerId = null) {
+  await ensureSellerPlatformSchema();
+  const params = [orgId];
+  let query = `
+    SELECT sc.*,
+           wi.instance_name,
+           wi.status AS connection_status,
+           a.id AS connected_agent_id,
+           a.name AS connected_agent_name
+      FROM seller_connections sc
+      JOIN vendedores v ON v.id = sc.seller_id
+      LEFT JOIN whatsapp_instances wi ON wi.id = sc.connection_id
+      LEFT JOIN agents a ON a.whatsapp_instance_id = wi.id
+     WHERE v.organization_id = $1
+  `;
+
+  if (sellerId) {
+    params.push(sellerId);
+    query += ` AND sc.seller_id = $2`;
+  }
+
+  query += ` ORDER BY sc.is_primary DESC, sc.created_at ASC`;
+
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+async function fetchSellerLeadRows(orgId, sellerId = null) {
+  const params = [orgId];
+  let query = `
+    SELECT id,
+           organization_id,
+           assigned_to,
+           name,
+           phone,
+           email,
+           status,
+           temperature,
+           value,
+           score,
+           created_at,
+           last_contact,
+           last_interaction_at
+      FROM leads
+     WHERE organization_id = $1
+       AND assigned_to IS NOT NULL
+  `;
+
+  if (sellerId) {
+    params.push(sellerId);
+    query += ` AND assigned_to = $2`;
+  }
+
+  query += ` ORDER BY created_at DESC`;
+
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+async function fetchChatMessagesForPhoneCandidates(orgId, phoneCandidates, lookbackStart) {
+  if (!phoneCandidates.length) {
+    return [];
+  }
+
+  const patterns = Array.from(new Set(phoneCandidates.map((candidate) => `%${candidate}%`)));
+  const result = await pool.query(`
+    SELECT cm.id,
+           cm.remote_jid,
+           cm.role,
+           cm.content,
+           cm.created_at,
+           wi.instance_name,
+           wi.id AS connection_id,
+           a.id AS agent_id
+      FROM chat_messages cm
+      JOIN agents a ON a.id = cm.agent_id
+      LEFT JOIN whatsapp_instances wi ON wi.id = a.whatsapp_instance_id
+     WHERE a.organization_id = $1
+       AND cm.remote_jid IS NOT NULL
+       AND cm.created_at >= $3
+       AND EXISTS (
+         SELECT 1
+           FROM unnest($2::text[]) AS candidate_pattern
+          WHERE regexp_replace(split_part(cm.remote_jid, '@', 1), '\D', '', 'g') LIKE candidate_pattern
+       )
+     ORDER BY cm.created_at ASC
+  `, [orgId, patterns, lookbackStart.toISOString()]);
+
+  return result.rows;
+}
+
+async function loadSellerAnalyticsContext(orgId, {
+  sellerId = null,
+  periodStart,
+  periodEnd,
+} = {}) {
+  const [sellerRows, connectionRows, leadRows, instanceRows] = await Promise.all([
+    fetchSellerRows(orgId, sellerId),
+    fetchSellerConnectionRows(orgId, sellerId),
+    fetchSellerLeadRows(orgId, sellerId),
+    fetchOrganizationInstances(orgId),
+  ]);
+
+  const instancesById = new Map(instanceRows.map((instance) => [instance.id, instance]));
+  const connectionsBySeller = buildConnectionsBySeller(connectionRows, instancesById);
+  const phoneCandidates = Array.from(new Set(leadRows.flatMap((lead) => buildPhoneCandidates(lead.phone))));
+  const lookbackStart = new Date(periodStart.getTime() - SELLER_MESSAGE_LOOKBACK_DAYS * 86400000);
+  const rawMessages = await fetchChatMessagesForPhoneCandidates(orgId, phoneCandidates, lookbackStart);
+
+  const scopes = sellerRows.map((seller) => buildSellerScope({
+    sellerId: seller.id,
+    sellers: sellerRows,
+    connectionsBySeller,
+    instancesById,
+    leads: leadRows,
+    rawMessages,
+    periodStart,
+    periodEnd,
+    now: new Date(),
+  }));
+
+  const teamAverages = buildTeamAverages(scopes);
+
+  return {
+    sellerRows,
+    scopes,
+    teamAverages,
+    instanceRows,
+    instancesById,
+    connectionsBySeller,
+  };
+}
+
+function serializeSellerScope(scope, teamAverages) {
+  const qualityScore = buildSellerScore(scope.metrics);
+  const risk = buildRiskBadge(scope.metrics);
+  const quality = buildSellerStrengthsAndCriticalPoints(scope.metrics, teamAverages);
+  const seller = serializeSellerRow(scope.seller, scope.connections, scope.status);
+
+  return {
+    ...seller,
+    metrics: {
+      ...scope.metrics,
+      avgResponseTimeLabel: scope.metrics.avgResponseTimeMinutes > 0
+        ? `${scope.metrics.avgResponseTimeMinutes} min`
+        : "Sem base suficiente",
+    },
+    risk,
+    qualityScore,
+    quality,
+    activeConversations: scope.conversations.length,
+    hasAiConnected: scope.connections.some((connection) => Boolean(connection.connectedAgentId)),
+    mainConnectionStatus: seller.primaryConnection?.connectionStatus || "DISCONNECTED",
+    leadsCount: scope.leadRows.length,
+  };
+}
+
+function buildSellerDetailPayload(scope, teamAverages, previousScope) {
+  const seller = serializeSellerScope(scope, teamAverages);
+  const insights = buildSellerInsights({
+    sellerName: seller.name,
+    metrics: scope.metrics,
+    previousMetrics: previousScope?.metrics || {},
+    teamAverages,
+    funnel: scope.funnel,
+  });
+  const executiveSummary = buildSellerExecutiveSummary(seller.qualityScore, insights);
+
+  return {
+    seller,
+    metrics: {
+      ...scope.metrics,
+      qualityScore: seller.qualityScore,
+      quality: seller.quality,
+    },
+    funnel: scope.funnel,
+    conversations: scope.conversations,
+    leads: scope.leadRows,
+    bottlenecks: buildSellerBottlenecks(scope, teamAverages),
+    insights,
+    executiveSummary,
+  };
+}
+
+function buildSellerBottlenecks(scope, teamAverages) {
+  const stalledConversations = scope.conversations.filter((conversation) => conversation.waitingForReply && conversation.waitingMinutes >= 60);
+  const staleLeads = scope.leadRows.filter((lead) => lead.lastInteractionAt && hoursBetween(lead.lastInteractionAt, new Date()) >= 48 && !isTerminalStatus(lead.stage));
+  const lowResponseComparedToTeam = (scope.metrics.responseRate || 0) < Math.max((teamAverages.responseRate || 0) - 0.1, 0);
+
+  return [
+    {
+      id: "waiting_customer_reply",
+      label: "Leads sem resposta ha mais de 1h",
+      count: stalledConversations.length,
+      action: "open_waiting",
+    },
+    {
+      id: "pending_followups",
+      label: "Leads parados sem follow-up",
+      count: scope.metrics.pendingFollowups,
+      action: "open_followups",
+    },
+    {
+      id: "last_customer_message",
+      label: "Ultima mensagem do cliente sem retorno",
+      count: scope.metrics.unansweredLeads,
+      action: "open_unanswered",
+    },
+    {
+      id: "stale_conversations",
+      label: "Conversas antigas sem movimentacao",
+      count: staleLeads.length,
+      action: "open_stale",
+    },
+    {
+      id: "response_gap",
+      label: "Resposta abaixo da media do time",
+      count: lowResponseComparedToTeam ? scope.metrics.leadsReceived : 0,
+      action: "open_response_gap",
+    },
+  ].filter((item) => item.count > 0);
+}
+
+function pickPrimaryConnection(connections = []) {
+  return connections.find((connection) => connection.isPrimary) || connections[0] || null;
+}
+
+function parseBooleanLike(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const normalized = String(value).toLowerCase();
+  if (["1", "true", "yes", "sim"].includes(normalized)) return true;
+  if (["0", "false", "no", "nao"].includes(normalized)) return false;
+  return null;
+}
+
+function filterSellerDirectory(items, query = {}) {
+  const search = String(query.search || "").trim().toLowerCase();
+  const statusFilter = String(query.status || "").trim().toLowerCase();
+  const connectionStatusFilter = String(query.connection_status || "").trim().toLowerCase();
+  const unansweredOnly = parseBooleanLike(query.unanswered_only);
+  const highRiskOnly = parseBooleanLike(query.high_risk_only);
+  const aiConnected = parseBooleanLike(query.ai_connected);
+
+  return items.filter((item) => {
+    if (statusFilter && String(item.status || "").toLowerCase() !== statusFilter) {
+      return false;
+    }
+
+    if (connectionStatusFilter) {
+      const hasConnectionStatus = item.connections.some((connection) =>
+        String(connection.connectionStatus || "").toLowerCase() === connectionStatusFilter,
+      );
+      if (!hasConnectionStatus) {
+        return false;
+      }
+    }
+
+    if (unansweredOnly === true && item.metrics.unansweredLeads <= 0) {
+      return false;
+    }
+
+    if (highRiskOnly === true && item.risk.level !== "high") {
+      return false;
+    }
+
+    if (aiConnected !== null && item.hasAiConnected !== aiConnected) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    const haystack = [
+      item.name,
+      item.phoneNumber,
+      item.email,
+      item.id,
+      item.primaryConnection?.instanceName,
+      ...item.connections.map((connection) => connection.instanceName || ""),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(search);
+  });
+}
+
+async function loadSellerDetailByPeriod(orgId, sellerId, period) {
+  const currentContext = await loadSellerAnalyticsContext(orgId, {
+    sellerId,
+    periodStart: period.periodStart,
+    periodEnd: period.periodEnd,
+  });
+  const previousContext = await loadSellerAnalyticsContext(orgId, {
+    sellerId,
+    periodStart: period.comparisonStart,
+    periodEnd: period.comparisonEnd,
+  });
+
+  const currentScope = currentContext.scopes[0] || null;
+  const previousScope = previousContext.scopes[0] || null;
+
+  return {
+    currentScope,
+    previousScope,
+    currentContext,
+  };
+}
+
+async function attachConnectionToSeller(orgId, sellerId, connectionId, { isPrimary = false, forceTransfer = false } = {}) {
+  await ensureSellerPlatformSchema();
+  const sellerRes = await pool.query(
+    `SELECT id
+       FROM vendedores
+      WHERE id = $1 AND organization_id = $2
+      LIMIT 1`,
+    [sellerId, orgId],
+  );
+
+  if (sellerRes.rows.length === 0) {
+    const error = new Error("Seller not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const connectionRes = await pool.query(
+    `SELECT id
+       FROM whatsapp_instances
+      WHERE id = $1 AND organization_id = $2
+      LIMIT 1`,
+    [connectionId, orgId],
+  );
+
+  if (connectionRes.rows.length === 0) {
+    const error = new Error("Connection not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const currentLink = await pool.query(
+    `SELECT sc.id,
+            sc.seller_id,
+            v.nome AS seller_name
+       FROM seller_connections sc
+       JOIN vendedores v ON v.id = sc.seller_id
+      WHERE sc.connection_id = $1
+      LIMIT 1`,
+    [connectionId],
+  );
+
+  if (currentLink.rows.length > 0 && currentLink.rows[0].seller_id !== sellerId) {
+    if (!forceTransfer) {
+      const error = new Error("Connection already linked");
+      error.statusCode = 409;
+      error.payload = {
+        currentSellerId: currentLink.rows[0].seller_id,
+        currentSellerName: currentLink.rows[0].seller_name,
+      };
+      throw error;
+    }
+
+    await pool.query(`DELETE FROM seller_connections WHERE connection_id = $1`, [connectionId]);
+  }
+
+  if (isPrimary) {
+    await pool.query(`UPDATE seller_connections SET is_primary = FALSE WHERE seller_id = $1`, [sellerId]);
+  }
+
+  const result = await pool.query(`
+    INSERT INTO seller_connections (seller_id, connection_id, is_primary)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (seller_id, connection_id)
+    DO UPDATE SET is_primary = EXCLUDED.is_primary
+    RETURNING *
+  `, [sellerId, connectionId, isPrimary]);
+
+  if (!isPrimary) {
+    const existingPrimary = await pool.query(
+      `SELECT id FROM seller_connections WHERE seller_id = $1 AND is_primary = TRUE LIMIT 1`,
+      [sellerId],
+    );
+
+    if (existingPrimary.rows.length === 0) {
+      await pool.query(
+        `UPDATE seller_connections SET is_primary = TRUE WHERE id = $1`,
+        [result.rows[0].id],
+      );
+    }
+  }
+
+  return result.rows[0];
+}
+
+async function detachConnectionFromSeller(orgId, sellerId, connectionId) {
+  await ensureSellerPlatformSchema();
+  const result = await pool.query(`
+    DELETE FROM seller_connections sc
+    USING vendedores v
+    WHERE sc.seller_id = v.id
+      AND v.organization_id = $1
+      AND sc.seller_id = $2
+      AND sc.connection_id = $3
+    RETURNING sc.*
+  `, [orgId, sellerId, connectionId]);
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const stillConnected = await pool.query(
+    `SELECT id FROM seller_connections WHERE seller_id = $1 ORDER BY created_at ASC`,
+    [sellerId],
+  );
+
+  const hasPrimary = await pool.query(
+    `SELECT id FROM seller_connections WHERE seller_id = $1 AND is_primary = TRUE LIMIT 1`,
+    [sellerId],
+  );
+
+  if (stillConnected.rows.length > 0 && hasPrimary.rows.length === 0) {
+    await pool.query(`UPDATE seller_connections SET is_primary = TRUE WHERE id = $1`, [stillConnected.rows[0].id]);
+  }
+
+  return result.rows[0];
+}
+
+async function getLinkedSellerIdForConnection(orgId, connectionId) {
+  if (!connectionId) return null;
+  await ensureSellerPlatformSchema();
+
+  const result = await pool.query(`
+    SELECT sc.seller_id
+      FROM seller_connections sc
+      JOIN vendedores v ON v.id = sc.seller_id
+     WHERE sc.connection_id = $1
+       AND v.organization_id = $2
+       AND v.ativo = TRUE
+     ORDER BY sc.is_primary DESC, sc.created_at ASC
+     LIMIT 1
+  `, [connectionId, orgId]);
+
+  return result.rows[0]?.seller_id || null;
 }
 
 async function syncLegacyRecoverySequencesToV2() {
@@ -11493,7 +12172,7 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
       // Ensure a lead exists in the CRM for this WhatsApp contact.
       // This runs fire-and-forget (no await) to not slow the message path.
       if (orgId) {
-        ensureLeadFromWhatsApp(remoteJid, pushName, orgId)
+        ensureLeadFromWhatsApp(remoteJid, pushName, orgId, instance.id)
           .catch(e => log(`[AUTO-LEAD] Error: ${e.message}`));
       }
       // --- END AUTO LEAD CREATION ---
@@ -11701,12 +12380,6 @@ app.get("/api/instances", verifyJWT, async (req, res) => {
   try {
     const userId = req.userId;
 
-    const selectInstancesWithAgent = `
-      SELECT wi.*, a.id AS connected_agent_id, a.name AS connected_agent_name
-      FROM whatsapp_instances wi
-      LEFT JOIN agents a ON a.whatsapp_instance_id = wi.id
-    `;
-
     const orgRes = await pool.query(
       "SELECT organization_id FROM users WHERE id = $1",
       [userId],
@@ -11715,17 +12388,28 @@ app.get("/api/instances", verifyJWT, async (req, res) => {
 
     if (!orgId) {
       const fallback = await pool.query(
-        `${selectInstancesWithAgent} WHERE wi.user_id = $1 ORDER BY wi.created_at DESC`,
+        `
+          SELECT wi.*,
+                 a.id AS connected_agent_id,
+                 a.name AS connected_agent_name,
+                 sc.seller_id AS connected_seller_id,
+                 v.nome AS connected_seller_name,
+                 sc.is_primary AS seller_is_primary
+            FROM whatsapp_instances wi
+            LEFT JOIN agents a ON a.whatsapp_instance_id = wi.id
+            LEFT JOIN seller_connections sc ON sc.connection_id = wi.id
+            LEFT JOIN vendedores v ON v.id = sc.seller_id
+           WHERE wi.user_id = $1
+           ORDER BY wi.created_at DESC
+        `,
         [userId],
       );
-      return res.json(fallback.rows);
+      return res.json(fallback.rows.map(serializeInstanceRow));
     }
 
-    const instancesQuery =
-      `${selectInstancesWithAgent} WHERE wi.organization_id = $1 ORDER BY wi.created_at DESC`;
-    let result = await pool.query(instancesQuery, [orgId]);
+    let instances = await fetchOrganizationInstances(orgId);
 
-    if (result.rows.length === 0) {
+    if (instances.length === 0) {
       const userInstances = await pool.query(
         "SELECT * FROM whatsapp_instances WHERE user_id = $1 AND (organization_id IS NULL OR organization_id != $2)",
         [userId, orgId],
@@ -11736,14 +12420,11 @@ app.get("/api/instances", verifyJWT, async (req, res) => {
           "UPDATE whatsapp_instances SET organization_id = $1 WHERE user_id = $2",
           [orgId, userId],
         );
-        result = await pool.query(
-          `${selectInstancesWithAgent} WHERE wi.organization_id = $1 ORDER BY wi.created_at DESC`,
-          [orgId],
-        );
+        instances = await fetchOrganizationInstances(orgId);
       }
     }
 
-    res.json(result.rows);
+    res.json(instances);
   } catch (err) {
     log("GET /api/instances error: " + err.toString());
     res.status(500).json({ error: "Database error" });
@@ -12943,7 +13624,7 @@ app.post("/api/evolution/webhook", async (req, res) => {
 
     // ── Auto-create lead in CRM only for valid external inbound messages ──────
     if (instanceOrgId && remoteJid && !remoteJid.includes('g.us')) {
-      ensureLeadFromWhatsApp(remoteJid, pushName, instanceOrgId)
+      ensureLeadFromWhatsApp(remoteJid, pushName, instanceOrgId, instanceId)
         .catch(e => log(`[WEBHOOK] Auto-lead error: ${e.message}`));
     }
 
@@ -16027,7 +16708,7 @@ async function ensureRevenueOSColumns() {
 }
 
 // --- AUTO LEAD CREATION FROM WHATSAPP ---
-async function ensureLeadFromWhatsApp(remoteJid, pushName, organizationId) {
+async function ensureLeadFromWhatsApp(remoteJid, pushName, organizationId, connectionId = null) {
   try {
     // Extract clean phone number (strip @s.whatsapp.net, keep digits only)
     const rawPhone = remoteJid.split('@')[0];
@@ -16037,6 +16718,8 @@ async function ensureLeadFromWhatsApp(remoteJid, pushName, organizationId) {
     if (remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) {
       return;
     }
+
+    const linkedSellerId = await getLinkedSellerIdForConnection(organizationId, connectionId);
 
     // 1. Get the real pipeline columns for the org
     // We need this to check if an existing lead has a valid status, or if we need to fall back to the first column.
@@ -16060,7 +16743,7 @@ async function ensureLeadFromWhatsApp(remoteJid, pushName, organizationId) {
     // 2. Check if lead already exists (dedup by phone)
     // Order by last_contact to find the MOST RECENT active lead.
     const existing = await pool.query(
-      `SELECT id, status FROM leads 
+      `SELECT id, status, assigned_to FROM leads 
        WHERE organization_id = $1 
          AND (phone = $2 OR phone = $3 OR phone LIKE $4)
        ORDER BY last_contact DESC NULLS LAST, created_at DESC
@@ -16079,24 +16762,33 @@ async function ensureLeadFromWhatsApp(remoteJid, pushName, organizationId) {
           [firstColumnTitle, lead.id]
         );
         log(`[AUTO-LEAD] Resurrected hidden lead ${lead.id} from invalid status '${lead.status}' to '${firstColumnTitle}'`);
+      } else if (!lead.assigned_to && linkedSellerId) {
+        await pool.query(
+          `UPDATE leads SET assigned_to = $1, last_contact = NOW() WHERE id = $2`,
+          [linkedSellerId, lead.id],
+        );
+        log(`[AUTO-LEAD] Lead ${lead.id} attributed to seller ${linkedSellerId} by linked connection ${connectionId}`);
       } else {
         log(`[AUTO-LEAD] Lead already exists & visible for ${cleanPhone} in org ${organizationId}. Skipping.`);
       }
-      return; // Stop here since the lead exists
+      return lead.id; // Stop here since the lead exists
     }
 
     // 3. Create new lead if none exists
     const contactName = (pushName && pushName.trim()) ? pushName.trim() : `WhatsApp ${cleanPhone.slice(-4)}`;
-    await pool.query(
+    const createdLead = await pool.query(
       `INSERT INTO leads 
-         (name, phone, source, status, organization_id, last_contact)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [contactName, cleanPhone, 'whatsapp', firstColumnTitle, organizationId]
+         (name, phone, source, status, organization_id, last_contact, assigned_to)
+       VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+       RETURNING id`,
+      [contactName, cleanPhone, 'whatsapp', firstColumnTitle, organizationId, linkedSellerId]
     );
 
     log(`[AUTO-LEAD] Created NEW lead "${contactName}" (${cleanPhone}) in column "${firstColumnTitle}" for org ${organizationId}`);
+    return createdLead.rows[0]?.id || null;
   } catch (err) {
     log(`[AUTO-LEAD] Error creating lead: ${err.message}`);
+    return null;
   }
 }
 
@@ -17699,6 +18391,431 @@ const fixNatanaelData = async () => {
 if (process.env.VERCEL !== '1') {
   setTimeout(fixNatanaelData, 5000);
 }
+
+app.get("/api/sellers", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const context = await loadSellerAnalyticsContext(orgId, {
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+    });
+
+    const directory = context.scopes.map((scope) => serializeSellerScope(scope, context.teamAverages));
+    const items = filterSellerDirectory(directory, req.query);
+
+    res.json({
+      items,
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/sellers", verifyJWT, async (req, res) => {
+  try {
+    await ensureSellerPlatformSchema();
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const {
+      name,
+      email,
+      phoneNumber,
+      avatarUrl,
+      role,
+      notes,
+      status,
+      connectionId,
+      connectionIds,
+      primaryConnectionId,
+      forceTransfer,
+    } = req.body || {};
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+
+    const normalizedStatus = String(status || "offline").toLowerCase();
+    const isActive = normalizedStatus !== "inactive";
+    const insertedSeller = await pool.query(`
+      INSERT INTO vendedores (
+        organization_id,
+        nome,
+        email,
+        whatsapp,
+        avatar_url,
+        role,
+        notes,
+        status,
+        porcentagem,
+        ativo,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 100, $9, NOW())
+      RETURNING *
+    `, [
+      orgId,
+      String(name).trim(),
+      email ? String(email).trim().toLowerCase() : null,
+      phoneNumber ? String(phoneNumber).trim() : null,
+      avatarUrl ? String(avatarUrl).trim() : null,
+      role ? String(role).trim() : null,
+      notes ? String(notes).trim() : null,
+      normalizedStatus,
+      isActive,
+    ]);
+
+    const seller = insertedSeller.rows[0];
+    const requestedConnections = Array.from(new Set([
+      ...(Array.isArray(connectionIds) ? connectionIds : []),
+      connectionId,
+      primaryConnectionId,
+    ].filter(Boolean)));
+    const chosenPrimary = primaryConnectionId || connectionId || requestedConnections[0] || null;
+
+    for (const requestedConnectionId of requestedConnections) {
+      await attachConnectionToSeller(orgId, seller.id, requestedConnectionId, {
+        isPrimary: chosenPrimary ? requestedConnectionId === chosenPrimary : requestedConnections[0] === requestedConnectionId,
+        forceTransfer: Boolean(forceTransfer),
+      });
+    }
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, previousScope, currentContext } = await loadSellerDetailByPeriod(orgId, seller.id, period);
+    res.status(201).json({
+      ...buildSellerDetailPayload(currentScope, currentContext.teamAverages, previousScope),
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    if (err.statusCode === 409) {
+      return res.status(409).json({
+        error: "Connection already linked to another seller",
+        ...err.payload,
+      });
+    }
+
+    log(`[SELLERS] POST /api/sellers error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.put("/api/sellers/:id", verifyJWT, async (req, res) => {
+  try {
+    await ensureSellerPlatformSchema();
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const sellerId = req.params.id;
+    const {
+      name,
+      email,
+      phoneNumber,
+      avatarUrl,
+      role,
+      notes,
+      status,
+      primaryConnectionId,
+      forceTransfer,
+    } = req.body || {};
+
+    const fields = [];
+    const values = [];
+    let index = 1;
+
+    if (name !== undefined) {
+      fields.push(`nome = $${index++}`);
+      values.push(String(name).trim());
+    }
+    if (email !== undefined) {
+      fields.push(`email = $${index++}`);
+      values.push(email ? String(email).trim().toLowerCase() : null);
+    }
+    if (phoneNumber !== undefined) {
+      fields.push(`whatsapp = $${index++}`);
+      values.push(phoneNumber ? String(phoneNumber).trim() : null);
+    }
+    if (avatarUrl !== undefined) {
+      fields.push(`avatar_url = $${index++}`);
+      values.push(avatarUrl ? String(avatarUrl).trim() : null);
+    }
+    if (role !== undefined) {
+      fields.push(`role = $${index++}`);
+      values.push(role ? String(role).trim() : null);
+    }
+    if (notes !== undefined) {
+      fields.push(`notes = $${index++}`);
+      values.push(notes ? String(notes).trim() : null);
+    }
+    if (status !== undefined) {
+      const normalizedStatus = String(status || "offline").toLowerCase();
+      fields.push(`status = $${index++}`);
+      values.push(normalizedStatus);
+      fields.push(`ativo = $${index++}`);
+      values.push(normalizedStatus !== "inactive");
+    }
+
+    if (fields.length > 0) {
+      fields.push(`updated_at = NOW()`);
+      values.push(sellerId, orgId);
+      const updateResult = await pool.query(`
+        UPDATE vendedores
+           SET ${fields.join(", ")}
+         WHERE id = $${index++}
+           AND organization_id = $${index++}
+         RETURNING *
+      `, values);
+
+      if (updateResult.rows.length === 0) {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+    } else {
+      const existingSeller = await pool.query(
+        `SELECT id FROM vendedores WHERE id = $1 AND organization_id = $2 LIMIT 1`,
+        [sellerId, orgId],
+      );
+
+      if (existingSeller.rows.length === 0) {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+    }
+
+    if (primaryConnectionId) {
+      await attachConnectionToSeller(orgId, sellerId, primaryConnectionId, {
+        isPrimary: true,
+        forceTransfer: Boolean(forceTransfer),
+      });
+    }
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, previousScope, currentContext } = await loadSellerDetailByPeriod(orgId, sellerId, period);
+
+    res.json({
+      ...buildSellerDetailPayload(currentScope, currentContext.teamAverages, previousScope),
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    if (err.statusCode === 409) {
+      return res.status(409).json({
+        error: "Connection already linked to another seller",
+        ...err.payload,
+      });
+    }
+
+    log(`[SELLERS] PUT /api/sellers/:id error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/sellers/:id", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, previousScope, currentContext } = await loadSellerDetailByPeriod(orgId, req.params.id, period);
+
+    if (!currentScope) {
+      return res.status(404).json({ error: "Seller not found" });
+    }
+
+    res.json({
+      ...buildSellerDetailPayload(currentScope, currentContext.teamAverages, previousScope),
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers/:id error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/sellers/:id/metrics", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, previousScope, currentContext } = await loadSellerDetailByPeriod(orgId, req.params.id, period);
+    if (!currentScope) {
+      return res.status(404).json({ error: "Seller not found" });
+    }
+
+    const seller = serializeSellerScope(currentScope, currentContext.teamAverages);
+    res.json({
+      seller,
+      metrics: {
+        ...currentScope.metrics,
+        qualityScore: seller.qualityScore,
+        quality: seller.quality,
+      },
+      funnel: currentScope.funnel,
+      bottlenecks: buildSellerBottlenecks(currentScope, currentContext.teamAverages),
+      comparison: previousScope?.metrics || null,
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers/:id/metrics error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/sellers/:id/insights", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, previousScope, currentContext } = await loadSellerDetailByPeriod(orgId, req.params.id, period);
+    if (!currentScope) {
+      return res.status(404).json({ error: "Seller not found" });
+    }
+
+    const seller = serializeSellerScope(currentScope, currentContext.teamAverages);
+    const insights = buildSellerInsights({
+      sellerName: seller.name,
+      metrics: currentScope.metrics,
+      previousMetrics: previousScope?.metrics || {},
+      teamAverages: currentContext.teamAverages,
+      funnel: currentScope.funnel,
+    });
+
+    res.json({
+      seller,
+      summary: buildSellerExecutiveSummary(seller.qualityScore, insights),
+      insights,
+      period: {
+        range: period.range,
+        start: period.periodStart.toISOString(),
+        end: period.periodEnd.toISOString(),
+      },
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers/:id/insights error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/sellers/:id/conversations", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, currentContext } = await loadSellerDetailByPeriod(orgId, req.params.id, period);
+    if (!currentScope) {
+      return res.status(404).json({ error: "Seller not found" });
+    }
+
+    res.json({
+      seller: serializeSellerScope(currentScope, currentContext.teamAverages),
+      conversations: currentScope.conversations,
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers/:id/conversations error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/sellers/:id/leads", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const period = parseSellerPeriod(req.query, { defaultDays: SELLER_DEFAULT_PERIOD_DAYS });
+    const { currentScope, currentContext } = await loadSellerDetailByPeriod(orgId, req.params.id, period);
+    if (!currentScope) {
+      return res.status(404).json({ error: "Seller not found" });
+    }
+
+    let leads = currentScope.leadRows;
+    const filter = String(req.query.filter || "").toLowerCase();
+    if (filter === "waiting") {
+      leads = leads.filter((lead) => lead.waitingForReply);
+    } else if (filter === "stale") {
+      leads = leads.filter((lead) => lead.lastInteractionAt && hoursBetween(lead.lastInteractionAt, new Date()) >= 48);
+    } else if (filter === "risk") {
+      leads = leads.filter((lead) => lead.waitingForReply || lead.timeWithoutResponseMinutes >= 60);
+    }
+
+    res.json({
+      seller: serializeSellerScope(currentScope, currentContext.teamAverages),
+      leads,
+    });
+  } catch (err) {
+    log(`[SELLERS] GET /api/sellers/:id/leads error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/sellers/:id/connections", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const { connectionId, isPrimary, forceTransfer } = req.body || {};
+    if (!connectionId) {
+      return res.status(400).json({ error: "connectionId is required" });
+    }
+
+    const linked = await attachConnectionToSeller(orgId, req.params.id, connectionId, {
+      isPrimary: Boolean(isPrimary),
+      forceTransfer: Boolean(forceTransfer),
+    });
+
+    res.status(201).json(linked);
+  } catch (err) {
+    if (err.statusCode === 409) {
+      return res.status(409).json({
+        error: "Connection already linked to another seller",
+        ...err.payload,
+      });
+    }
+
+    log(`[SELLERS] POST /api/sellers/:id/connections error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.delete("/api/sellers/:id/connections/:connectionId", verifyJWT, async (req, res) => {
+  try {
+    const orgId = await getOrganizationIdForUser(req.userId);
+    if (!orgId) return res.status(400).json({ error: "No organization found" });
+
+    const removed = await detachConnectionFromSeller(orgId, req.params.id, req.params.connectionId);
+    if (!removed) {
+      return res.status(404).json({ error: "Connection link not found" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    log(`[SELLERS] DELETE /api/sellers/:id/connections/:connectionId error: ${err.message}`);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 
 // ─────────────────────────────────────────────────────────────────────────────

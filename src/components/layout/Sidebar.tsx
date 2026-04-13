@@ -34,7 +34,7 @@ const menuItems = [
     { icon: UserCheck, label: 'Clientes', path: '/clients' },
     { icon: RotateCcw, label: 'Recuperação', path: '/recovery' },
     { icon: CalendarDays, label: 'Agenda', path: '/agenda' },
-    { icon: UserCog, label: 'Vendedores', path: '/vendedores' },
+    { icon: UserCog, label: 'Time Comercial', path: '/vendedores' },
     { icon: Zap, label: 'Ativar Koins', path: '/billing' },
     { icon: Settings, label: 'Configurações', path: '/settings' },
     { icon: Shield, label: 'Parceiros', path: '/partners' },

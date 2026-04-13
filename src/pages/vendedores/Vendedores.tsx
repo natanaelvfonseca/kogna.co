@@ -1,566 +1,433 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Link2, Loader2, MessageSquare, Plus, Search, ShieldAlert, Sparkles, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useNotifications } from '../../context/NotificationContext';
 import { API_URL } from '../../config/api';
-import {
-    UserPlus, Trash2, Clock, Users, Check, X, Loader2, Ban, Plus,
-    ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Zap
-} from 'lucide-react';
+import { SellerConnectionModal } from './components/SellerConnectionModal';
+import { SellerFormModal } from './components/SellerFormModal';
+import type { SellerSummary, SellersListResponse } from './types';
 
-const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-interface Vendedor {
-    id: string; nome: string; email: string; whatsapp?: string;
-    porcentagem: number; ativo: boolean; leads_recebidos_ciclo: number;
-}
-interface Disponibilidade {
-    id: string; vendedor_id: string; dia_semana: number;
-    hora_inicio: string; hora_fim: string; intervalo: number;
-}
-interface Bloqueio {
-    id: string; vendedor_id: string; data_inicio: string; data_fim: string; motivo?: string;
+function formatPercent(value: number) {
+    return `${Math.round((value || 0) * 100)}%`;
 }
 
-const PRESETS = [
-    { label: '⚡ Comercial', dias: [1, 2, 3, 4, 5], inicio: '09:00', fim: '18:00', intervalo: 30 },
-    { label: '🌅 Manhã', dias: [1, 2, 3, 4, 5], inicio: '09:00', fim: '13:00', intervalo: 30 },
-    { label: '🌙 Tarde', dias: [1, 2, 3, 4, 5], inicio: '13:00', fim: '18:00', intervalo: 30 },
-    { label: '7 dias', dias: [0, 1, 2, 3, 4, 5, 6], inicio: '09:00', fim: '18:00', intervalo: 30 },
-];
+function statusBadge(status: SellerSummary['status']) {
+    if (status === 'online') {
+        return 'border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200';
+    }
+
+    if (status === 'inactive') {
+        return 'border-rose-200/80 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200';
+    }
+
+    return 'border-amber-200/80 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200';
+}
+
+function riskBadge(level: SellerSummary['risk']['level']) {
+    if (level === 'high') {
+        return 'border-rose-200/80 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200';
+    }
+
+    if (level === 'attention') {
+        return 'border-amber-200/80 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200';
+    }
+
+    return 'border-emerald-200/80 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-200';
+}
+
+function connectionBadge(status: string) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'connected' || normalized === 'open') {
+        return 'text-emerald-600 dark:text-emerald-300';
+    }
+    return 'text-amber-600 dark:text-amber-300';
+}
+
+function initials(name: string) {
+    return name
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join('');
+}
 
 export function Vendedores() {
     const { token } = useAuth();
-    const { showToast } = useNotifications();
-    const [loading, setLoading] = useState(false);
-    const [vendedores, setVendedores] = useState<Vendedor[]>([]);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [disponibilidades, setDisponibilidades] = useState<Disponibilidade[]>([]);
-    const [bloqueios, setBloqueios] = useState<Bloqueio[]>([]);
+    const navigate = useNavigate();
+    const [loading, setLoading] = useState(true);
+    const [items, setItems] = useState<SellerSummary[]>([]);
+    const [periodLabel, setPeriodLabel] = useState('Ultimos 7 dias');
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showLinkModal, setShowLinkModal] = useState(false);
 
-    // Add vendedor form
-    const [showAddForm, setShowAddForm] = useState(false);
-    const [newV, setNewV] = useState({ nome: '', email: '', whatsapp: '', porcentagem: 50 });
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+    const [connectionStatusFilter, setConnectionStatusFilter] = useState('');
+    const [unansweredOnly, setUnansweredOnly] = useState(false);
+    const [highRiskOnly, setHighRiskOnly] = useState(false);
+    const [aiConnectedFilter, setAiConnectedFilter] = useState<'all' | 'yes' | 'no'>('all');
 
-    // Quick-add hours
-    const [selectedDias, setSelectedDias] = useState<number[]>([]);
-    const [qHoraInicio, setQHoraInicio] = useState('09:00');
-    const [qHoraFim, setQHoraFim] = useState('18:00');
-    const [qIntervalo, setQIntervalo] = useState(30);
-    const [showHoursForm, setShowHoursForm] = useState(false);
+    async function fetchSellers() {
+        if (!token) return;
 
-    // Add bloqueio
-    const [showAddBloqueio, setShowAddBloqueio] = useState(false);
-    const [newBloqueio, setNewBloqueio] = useState({ dataInicio: '', dataFim: '', motivo: '' });
-
-    const h = (): HeadersInit => ({
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    });
-
-    const fetchVendedores = async () => {
-        const res = await fetch(`${API_URL}/vendedores/all`, { headers: h() });
-        if (res.ok) setVendedores(await res.json());
-    };
-
-    const fetchDetail = async (id: string) => {
-        const [dispRes, bloqRes] = await Promise.all([
-            fetch(`${API_URL}/vendedores/${id}/disponibilidade`, { headers: h() }),
-            fetch(`${API_URL}/vendedores/${id}/bloqueios`, { headers: h() }),
-        ]);
-        if (dispRes.ok) setDisponibilidades(await dispRes.json());
-        if (bloqRes.ok) setBloqueios(await bloqRes.json());
-    };
-
-    useEffect(() => { fetchVendedores(); }, []);
-    useEffect(() => { if (selectedId) fetchDetail(selectedId); }, [selectedId]);
-
-    const select = (id: string) => {
-        setSelectedId(prev => prev === id ? null : id);
-        setShowHoursForm(false);
-        setSelectedDias([]);
-    };
-
-    // Add vendedor
-    const addVendedor = async () => {
-        if (!newV.nome || !newV.email) return;
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/vendedores`, {
-                method: 'POST', headers: h(), body: JSON.stringify(newV)
+            const params = new URLSearchParams();
+            params.set('days', '7');
+            if (search.trim()) params.set('search', search.trim());
+            if (statusFilter) params.set('status', statusFilter);
+            if (connectionStatusFilter) params.set('connection_status', connectionStatusFilter);
+            if (unansweredOnly) params.set('unanswered_only', 'true');
+            if (highRiskOnly) params.set('high_risk_only', 'true');
+            if (aiConnectedFilter === 'yes') params.set('ai_connected', 'true');
+            if (aiConnectedFilter === 'no') params.set('ai_connected', 'false');
+
+            const response = await fetch(`${API_URL}/sellers?${params.toString()}`, {
+                headers: { Authorization: `Bearer ${token}` },
             });
-            if (res.ok) {
-                await fetchVendedores();
-                setNewV({ nome: '', email: '', whatsapp: '', porcentagem: 50 });
-                setShowAddForm(false);
-                showToast('Sucesso', 'Vendedor adicionado com sucesso', 'success');
-            } else {
-                const err = await res.json().catch(() => ({}));
-                showToast('Erro', err.error || `Erro ao salvar (${res.status})`, 'error');
+
+            if (!response.ok) {
+                throw new Error('Nao foi possivel carregar o time comercial.');
             }
-        } catch (e) {
-            console.error('[addVendedor]', e);
-            showToast('Erro', 'Falha na conexão com o servidor', 'error');
+
+            const data = await response.json() as SellersListResponse;
+            setItems(Array.isArray(data.items) ? data.items : []);
+
+            const start = data.period?.start ? new Date(data.period.start) : null;
+            const end = data.period?.end ? new Date(data.period.end) : null;
+            if (start && end) {
+                setPeriodLabel(
+                    `${start.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} - ${end.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`,
+                );
+            }
+        } catch (error) {
+            console.error(error);
+            setItems([]);
         } finally {
             setLoading(false);
         }
-    };
+    }
 
-    // Toggle ativo
-    const toggleAtivo = async (id: string) => {
-        try {
-            const res = await fetch(`${API_URL}/vendedores/${id}/toggle-ativo`, { method: 'PATCH', headers: h() });
-            if (res.ok) {
-                await fetchVendedores();
-            } else {
-                const err = await res.json().catch(() => ({}));
-                showToast('Erro', err.error || 'Não foi possível alterar o status', 'error');
-            }
-        } catch (e) {
-            console.error('[toggleAtivo]', e);
-            showToast('Erro', 'Falha na conexão', 'error');
-        }
-    };
-
-    // Delete vendedor
-    const deleteVendedor = async (id: string) => {
-        if (!confirm('Remover este vendedor?')) return;
-        try {
-            const res = await fetch(`${API_URL}/vendedores/${id}`, { method: 'DELETE', headers: h() });
-            if (res.ok) {
-                await fetchVendedores();
-                if (selectedId === id) setSelectedId(null);
-                showToast('Removido', 'Vendedor removido', 'success');
-            } else {
-                showToast('Erro', 'Não foi possível remover', 'error');
-            }
-        } catch (e) {
-            console.error('[deleteVendedor]', e);
-            showToast('Erro', 'Falha na conexão', 'error');
-        }
-    };
-
-    // Update porcentagem inline
-    const updatePorcentagem = async (id: string, val: number) => {
-        try {
-            await fetch(`${API_URL}/vendedores/${id}`, {
-                method: 'PATCH', headers: h(), body: JSON.stringify({ porcentagem: val })
-            });
-            await fetchVendedores();
-        } catch (e) {
-            console.error('[updatePorcentagem]', e);
-        }
-    };
-
-    // Apply preset
-    const applyPreset = (p: typeof PRESETS[0]) => {
-        setSelectedDias(p.dias);
-        setQHoraInicio(p.inicio);
-        setQHoraFim(p.fim);
-        setQIntervalo(p.intervalo);
-        setShowHoursForm(true);
-    };
-
-    // Quick-add hours
-    const addHours = async () => {
-        if (!selectedId || selectedDias.length === 0) return;
-        setLoading(true);
-        try {
-            await Promise.all(selectedDias.map(dia =>
-                fetch(`${API_URL}/vendedores/${selectedId}/disponibilidade`, {
-                    method: 'POST', headers: h(),
-                    body: JSON.stringify({ diaSemana: dia, horaInicio: qHoraInicio, horaFim: qHoraFim, intervalo: qIntervalo })
-                })
-            ));
-            await fetchDetail(selectedId);
-            setSelectedDias([]);
-            setShowHoursForm(false);
-            showToast('Horários salvos', `${selectedDias.length} dia(s) adicionados`, 'success');
-        } catch (e) {
-            console.error('[addHours]', e);
-            showToast('Erro', 'Falha ao salvar horários', 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const deleteDisp = async (dispId: string) => {
-        try {
-            await fetch(`${API_URL}/disponibilidade/${dispId}`, { method: 'DELETE', headers: h() });
-            if (selectedId) fetchDetail(selectedId);
-        } catch (e) { console.error('[deleteDisp]', e); }
-    };
-
-    const addBloqueio = async () => {
-        if (!selectedId || !newBloqueio.dataInicio || !newBloqueio.dataFim) return;
-        setLoading(true);
-        try {
-            const res = await fetch(`${API_URL}/vendedores/${selectedId}/bloqueios`, {
-                method: 'POST', headers: h(), body: JSON.stringify(newBloqueio)
-            });
-            if (res.ok) {
-                await fetchDetail(selectedId);
-                setShowAddBloqueio(false);
-                setNewBloqueio({ dataInicio: '', dataFim: '', motivo: '' });
-                showToast('Bloqueio criado', '', 'success');
-            } else {
-                showToast('Erro', 'Não foi possível criar o bloqueio', 'error');
-            }
-        } catch (e) {
-            console.error('[addBloqueio]', e);
-            showToast('Erro', 'Falha na conexão', 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const deleteBloqueio = async (bloqId: string) => {
-        try {
-            await fetch(`${API_URL}/bloqueios/${bloqId}`, { method: 'DELETE', headers: h() });
-            if (selectedId) fetchDetail(selectedId);
-        } catch (e) { console.error('[deleteBloqueio]', e); }
-    };
-
-    const totalPct = vendedores.filter(v => v.ativo).reduce((s, v) => s + v.porcentagem, 0);
-    const selectedVendedor = vendedores.find(v => v.id === selectedId);
+    useEffect(() => {
+        fetchSellers();
+    }, [token, search, statusFilter, connectionStatusFilter, unansweredOnly, highRiskOnly, aiConnectedFilter]);
 
     return (
-        <div className="h-full flex flex-col p-6 space-y-5 overflow-y-auto" data-tour-id="tour-vendedores-main">
+        <>
+            <div className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+                <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px] overflow-hidden">
+                    <div className="absolute left-[-8%] top-12 h-56 w-56 rounded-full bg-primary/[0.16] blur-3xl dark:bg-primary/[0.12]" />
+                    <div className="absolute right-[6%] top-0 h-64 w-64 rounded-full bg-orange-300/20 blur-3xl dark:bg-orange-500/10" />
+                </div>
 
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
-                        <Users size={24} className="text-primary" /> Vendedores
-                    </h1>
-                    <p className="text-text-secondary text-sm mt-0.5">Gerencie a equipe de vendas, distribuição de leads e horários de atendimento</p>
-                </div>
-                <button
-                    onClick={() => setShowAddForm(v => !v)}
-                    className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2.5 rounded-xl transition-all text-sm shadow-lg shadow-primary/25 active:scale-95"
-                >
-                    <UserPlus size={16} /> Novo Vendedor
-                </button>
-            </div>
+                <section className="relative overflow-hidden rounded-[32px] border border-black/[0.06] bg-white/[0.85] p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#111111] dark:shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:p-8">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(245,121,59,0.13),_transparent_36%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.05),_transparent_34%)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(245,121,59,0.18),_transparent_38%),radial-gradient(circle_at_bottom_right,_rgba(255,255,255,0.05),_transparent_32%)]" />
 
-            {/* Distribution bar */}
-            <div className="bg-surface border border-border rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Distribuição de Leads (ativos)</span>
-                    <span className={`text-sm font-bold ${totalPct === 100 ? 'text-green-500' : totalPct > 100 ? 'text-red-500' : 'text-amber-500'}`}>
-                        {totalPct}% {totalPct === 100 ? '✓' : totalPct > 100 ? '— excede 100%' : '— ideal: 100%'}
-                    </span>
-                </div>
-                <div className="flex h-3 rounded-full overflow-hidden gap-0.5 bg-white/5">
-                    {vendedores.filter(v => v.ativo).map(v => (
-                        <div
-                            key={v.id}
-                            className="h-full bg-primary/70 transition-all"
-                            style={{ width: `${v.porcentagem}%` }}
-                            title={`${v.nome}: ${v.porcentagem}%`}
-                        />
-                    ))}
-                </div>
-                <div className="flex gap-4 mt-2 flex-wrap">
-                    {vendedores.filter(v => v.ativo).map(v => (
-                        <div key={v.id} className="flex items-center gap-1.5 text-xs text-text-secondary">
-                            <div className="w-2 h-2 rounded-full bg-primary/70" />
-                            {v.nome.split(' ')[0]}: {v.porcentagem}%
+                    <div className="relative flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
+                        <div className="max-w-3xl">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-primary/[0.15] bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-primary dark:border-primary/20 dark:bg-primary/[0.12]">
+                                <Sparkles size={14} />
+                                Time comercial
+                            </div>
+
+                            <h1 className="mt-4 text-4xl font-display font-bold tracking-[-0.04em] text-text-primary sm:text-5xl">
+                                Central de vendedores
+                            </h1>
+                            <p className="mt-3 max-w-2xl text-base leading-7 text-text-secondary sm:text-lg">
+                                Veja o time pelo vendedor, conecte linhas reais da operacao e entre direto nas conversas que exigem acao.
+                            </p>
+
+                            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                                <div className="rounded-2xl border border-black/[0.05] bg-white/[0.68] px-4 py-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)] backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.04]">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Vendedores</p>
+                                    <p className="mt-1 text-lg font-semibold tracking-tight text-text-primary">{items.length}</p>
+                                </div>
+                                <div className="rounded-2xl border border-black/[0.05] bg-white/[0.68] px-4 py-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)] backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.04]">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Com risco alto</p>
+                                    <p className="mt-1 text-lg font-semibold tracking-tight text-text-primary">{items.filter((item) => item.risk.level === 'high').length}</p>
+                                </div>
+                                <div className="rounded-2xl border border-black/[0.05] bg-white/[0.68] px-4 py-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)] backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.04]">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Linhas com IA</p>
+                                    <p className="mt-1 text-lg font-semibold tracking-tight text-text-primary">{items.filter((item) => item.hasAiConnected).length}</p>
+                                </div>
+                                <div className="rounded-2xl border border-black/[0.05] bg-white/[0.68] px-4 py-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)] backdrop-blur dark:border-white/[0.06] dark:bg-white/[0.04]">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Janela</p>
+                                    <p className="mt-1 text-lg font-semibold tracking-tight text-text-primary">{periodLabel}</p>
+                                </div>
+                            </div>
                         </div>
-                    ))}
-                </div>
-            </div>
 
-            {/* Add Vendedor Form */}
-            {showAddForm && (
-                <div className="bg-surface border border-primary/30 rounded-2xl p-5 space-y-4 animate-fade-in shadow-xl shadow-primary/5">
-                    <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-text-primary flex items-center gap-2"><UserPlus size={16} className="text-primary" /> Novo Vendedor</h3>
-                        <button onClick={() => setShowAddForm(false)} className="text-text-muted hover:text-text-primary"><X size={16} /></button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        {[
-                            { placeholder: 'Nome completo *', key: 'nome', value: newV.nome },
-                            { placeholder: 'Email *', key: 'email', value: newV.email },
-                            { placeholder: 'WhatsApp (opcional)', key: 'whatsapp', value: newV.whatsapp },
-                        ].map(({ placeholder, key, value }) => (
-                            <input
-                                key={key}
-                                className="px-3 py-2.5 bg-background border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-primary/60 transition-colors placeholder:text-text-muted"
-                                placeholder={placeholder}
-                                value={value}
-                                onChange={e => setNewV(prev => ({ ...prev, [key]: e.target.value }))}
-                            />
-                        ))}
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="number" min={0} max={100}
-                                className="w-24 px-3 py-2.5 bg-background border border-border rounded-xl text-sm text-text-primary focus:outline-none focus:border-primary/60"
-                                value={newV.porcentagem}
-                                onChange={e => setNewV(prev => ({ ...prev, porcentagem: Number(e.target.value) }))}
-                            />
-                            <span className="text-xs text-text-muted">% dos leads</span>
-                        </div>
-                    </div>
-                    <div className="flex gap-2">
-                        <button
-                            onClick={addVendedor}
-                            disabled={loading || !newV.nome || !newV.email}
-                            className="flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors shadow-lg shadow-primary/20"
-                        >
-                            {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                            Salvar Vendedor
-                        </button>
-                        <button onClick={() => setShowAddForm(false)} className="px-5 py-2 text-sm text-text-muted hover:text-text-primary rounded-xl hover:bg-white/5 transition-colors">Cancelar</button>
-                    </div>
-                </div>
-            )}
-
-            {/* Vendedores List */}
-            {vendedores.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
-                    <Users size={56} className="text-text-muted/20 mb-4" />
-                    <p className="text-text-muted text-sm font-medium">Nenhum vendedor cadastrado</p>
-                    <p className="text-text-muted/70 text-xs mt-1">Clique em "Novo Vendedor" para começar</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {vendedores.map(v => {
-                        const isExpanded = selectedId === v.id;
-                        return (
-                            <div key={v.id} className={`bg-surface border rounded-2xl overflow-hidden transition-all ${isExpanded ? 'border-primary/40 shadow-xl shadow-primary/5' : 'border-border hover:border-border/80'}`}>
-
-                                {/* Card Row */}
-                                <div className="flex items-center gap-4 p-4">
-                                    {/* Avatar */}
-                                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 font-bold text-base ${v.ativo ? 'bg-primary/10 text-primary' : 'bg-white/5 text-text-muted'}`}>
-                                        {v.nome.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-                                    </div>
-
-                                    {/* Info */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-semibold text-sm text-text-primary">{v.nome}</span>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${v.ativo ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-white/5 text-text-muted border-border'}`}>
-                                                {v.ativo ? 'ATIVO' : 'INATIVO'}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-text-muted mt-0.5">{v.email}{v.whatsapp ? ` · ${v.whatsapp}` : ''}</p>
-                                    </div>
-
-                                    {/* % distribution editable */}
-                                    <div className="shrink-0 text-center w-24">
-                                        <div className="flex items-center gap-1 justify-center">
-                                            <input
-                                                type="number" min={0} max={100}
-                                                className="w-14 bg-transparent text-center text-lg font-bold text-primary border-b border-border/50 focus:outline-none focus:border-primary/60 transition-colors"
-                                                value={v.porcentagem}
-                                                onBlur={e => updatePorcentagem(v.id, Number(e.target.value))}
-                                                onChange={e => setVendedores(prev => prev.map(x => x.id === v.id ? { ...x, porcentagem: Number(e.target.value) } : x))}
-                                            />
-                                            <span className="text-xs text-text-muted">%</span>
-                                        </div>
-                                        <p className="text-[10px] text-text-muted mt-0.5">distribuição</p>
-                                    </div>
-
-                                    {/* Leads ciclo */}
-                                    <div className="shrink-0 text-center w-20">
-                                        <p className="text-lg font-bold text-text-primary">{v.leads_recebidos_ciclo}</p>
-                                        <p className="text-[10px] text-text-muted">leads ciclo</p>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        <button
-                                            onClick={() => toggleAtivo(v.id)}
-                                            title={v.ativo ? 'Desativar' : 'Ativar'}
-                                            className={`p-2 rounded-xl transition-colors ${v.ativo ? 'text-green-500 hover:bg-green-500/10' : 'text-text-muted hover:bg-white/5'}`}
-                                        >
-                                            {v.ativo ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
-                                        </button>
-                                        <button
-                                            onClick={() => select(v.id)}
-                                            className={`p-2 rounded-xl transition-colors ${isExpanded ? 'text-primary bg-primary/10' : 'text-text-muted hover:text-primary hover:bg-primary/5'}`}
-                                            title="Horários e bloqueios"
-                                        >
-                                            {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                        </button>
-                                        <button
-                                            onClick={() => deleteVendedor(v.id)}
-                                            className="p-2 text-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
-                                            title="Remover"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
+                        <div className="w-full max-w-2xl">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+                                <div className="relative flex-1">
+                                    <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" />
+                                    <input
+                                        value={search}
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        placeholder="Buscar por vendedor, telefone, conexao ou ID"
+                                        className="h-12 w-full rounded-2xl border border-black/[0.07] bg-white/80 pl-11 pr-4 text-sm text-text-primary shadow-[0_8px_24px_rgba(15,23,42,0.05)] outline-none transition-all duration-300 placeholder:text-text-muted focus:border-primary/40 focus:ring-4 focus:ring-primary/10 dark:border-white/[0.08] dark:bg-white/[0.04] dark:focus:border-primary/40 dark:focus:ring-primary/10"
+                                    />
                                 </div>
 
-                                {/* Expanded Panel */}
-                                {isExpanded && selectedVendedor && (
-                                    <div className="border-t border-border/50 p-5 space-y-6 bg-background/30">
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowLinkModal(true)}
+                                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-black/[0.08] bg-white px-4 text-sm font-semibold text-text-primary shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:text-primary dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white dark:hover:border-primary/30 dark:hover:text-primary-light"
+                                    >
+                                        <Link2 size={16} />
+                                        Vincular conexao
+                                    </button>
+                                    <button
+                                        onClick={() => setShowCreateModal(true)}
+                                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-primary px-5 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(245,121,59,0.34)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_45px_rgba(245,121,59,0.4)] active:translate-y-0"
+                                    >
+                                        <Plus size={18} />
+                                        Adicionar vendedor
+                                    </button>
+                                </div>
+                            </div>
 
-                                        {/* Quick-add Hours */}
-                                        <div>
-                                            <div className="flex items-center justify-between mb-3">
-                                                <h4 className="text-sm font-bold text-text-primary flex items-center gap-2"><Clock size={14} className="text-primary" /> Horários de Atendimento</h4>
-                                                <button
-                                                    onClick={() => setShowHoursForm(f => !f)}
-                                                    className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:text-primary/80 transition-colors"
-                                                >
-                                                    <Plus size={13} /> Adicionar
-                                                </button>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                                <select
+                                    value={statusFilter}
+                                    onChange={(event) => setStatusFilter(event.target.value)}
+                                    className="h-11 rounded-2xl border border-black/[0.07] bg-white px-4 text-sm text-text-primary outline-none transition-all focus:border-primary/40 focus:ring-4 focus:ring-primary/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                                >
+                                    <option value="">Status do vendedor</option>
+                                    <option value="online">Online</option>
+                                    <option value="offline">Offline</option>
+                                    <option value="inactive">Inativo</option>
+                                </select>
+
+                                <select
+                                    value={connectionStatusFilter}
+                                    onChange={(event) => setConnectionStatusFilter(event.target.value)}
+                                    className="h-11 rounded-2xl border border-black/[0.07] bg-white px-4 text-sm text-text-primary outline-none transition-all focus:border-primary/40 focus:ring-4 focus:ring-primary/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                                >
+                                    <option value="">Status da conexao</option>
+                                    <option value="connected">Conectada</option>
+                                    <option value="open">Aberta</option>
+                                    <option value="disconnected">Desconectada</option>
+                                </select>
+
+                                <button
+                                    onClick={() => setUnansweredOnly((current) => !current)}
+                                    className={`inline-flex h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold transition-all ${unansweredOnly
+                                        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200'
+                                        : 'border-black/[0.07] bg-white text-text-secondary hover:border-primary/20 hover:text-text-primary dark:border-white/[0.08] dark:bg-white/[0.04]'
+                                        }`}
+                                >
+                                    Leads sem resposta
+                                </button>
+
+                                <button
+                                    onClick={() => setHighRiskOnly((current) => !current)}
+                                    className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition-all ${highRiskOnly
+                                        ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200'
+                                        : 'border-black/[0.07] bg-white text-text-secondary hover:border-primary/20 hover:text-text-primary dark:border-white/[0.08] dark:bg-white/[0.04]'
+                                        }`}
+                                >
+                                    <ShieldAlert size={15} />
+                                    Risco alto
+                                </button>
+
+                                <select
+                                    value={aiConnectedFilter}
+                                    onChange={(event) => setAiConnectedFilter(event.target.value as 'all' | 'yes' | 'no')}
+                                    className="h-11 rounded-2xl border border-black/[0.07] bg-white px-4 text-sm text-text-primary outline-none transition-all focus:border-primary/40 focus:ring-4 focus:ring-primary/10 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                                >
+                                    <option value="all">IA conectada</option>
+                                    <option value="yes">Com IA</option>
+                                    <option value="no">Sem IA</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <div className="mt-8">
+                    {loading ? (
+                        <div className="flex min-h-[320px] items-center justify-center rounded-[32px] border border-black/[0.06] bg-white/[0.9] shadow-[0_18px_60px_rgba(15,23,42,0.08)] dark:border-white/[0.08] dark:bg-[#111111]">
+                            <div className="flex items-center gap-3 text-text-secondary">
+                                <Loader2 size={20} className="animate-spin text-primary" />
+                                Carregando vendedores...
+                            </div>
+                        </div>
+                    ) : items.length === 0 ? (
+                        <div className="rounded-[32px] border border-dashed border-black/[0.08] bg-white/[0.92] px-6 py-16 text-center shadow-[0_18px_60px_rgba(15,23,42,0.08)] dark:border-white/[0.10] dark:bg-[#111111]">
+                            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] bg-primary/10 text-primary">
+                                <User size={34} />
+                            </div>
+                            <h2 className="mt-6 text-2xl font-display font-bold tracking-tight text-text-primary">
+                                Conecte o primeiro vendedor para acompanhar a operacao
+                            </h2>
+                            <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-text-secondary sm:text-base">
+                                Vincule uma linha real do WhatsApp e comece a acompanhar desempenho individual, risco operacional e conversas do time comercial sem alternar entre telas soltas.
+                            </p>
+                            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                                <button
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-primary px-5 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(245,121,59,0.34)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_45px_rgba(245,121,59,0.4)]"
+                                >
+                                    <Plus size={18} />
+                                    Adicionar vendedor
+                                </button>
+                                <button
+                                    onClick={() => setShowLinkModal(true)}
+                                    className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-black/[0.08] bg-white px-5 text-sm font-semibold text-text-primary shadow-[0_10px_24px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/30 hover:text-primary dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white"
+                                >
+                                    <Link2 size={18} />
+                                    Vincular conexao
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="grid gap-5 xl:grid-cols-2">
+                            {items.map((seller) => (
+                                <button
+                                    key={seller.id}
+                                    type="button"
+                                    onClick={() => navigate(`/vendedores/${seller.id}`)}
+                                    className="group relative overflow-hidden rounded-[32px] border border-black/[0.06] bg-white/[0.92] p-6 text-left shadow-[0_18px_60px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/20 hover:shadow-[0_24px_70px_rgba(15,23,42,0.12)] dark:border-white/[0.08] dark:bg-[#111111]"
+                                >
+                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(245,121,59,0.10),_transparent_36%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+                                    <div className="relative">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex min-w-0 items-start gap-4">
+                                                {seller.avatarUrl ? (
+                                                    <img
+                                                        src={seller.avatarUrl}
+                                                        alt={seller.name}
+                                                        className="h-14 w-14 shrink-0 rounded-[20px] object-cover shadow-[0_10px_26px_rgba(15,23,42,0.12)]"
+                                                    />
+                                                ) : (
+                                                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary/10 text-lg font-bold text-primary">
+                                                        {initials(seller.name)}
+                                                    </div>
+                                                )}
+
+                                                <div className="min-w-0">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h3 className="truncate text-xl font-display font-bold tracking-tight text-text-primary">
+                                                            {seller.name}
+                                                        </h3>
+                                                        <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${statusBadge(seller.status)}`}>
+                                                            {seller.status}
+                                                        </span>
+                                                        <span className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${riskBadge(seller.risk.level)}`}>
+                                                            {seller.risk.label}
+                                                        </span>
+                                                    </div>
+
+                                                    <p className="mt-1 text-sm text-text-secondary">
+                                                        {seller.role || 'Sem cargo definido'}{seller.phoneNumber ? ` - ${seller.phoneNumber}` : ''}
+                                                    </p>
+
+                                                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-secondary">
+                                                        <span className={`inline-flex items-center gap-2 rounded-full border border-black/[0.06] bg-white/80 px-3 py-1 dark:border-white/[0.08] dark:bg-white/[0.04] ${connectionBadge(seller.primaryConnection?.connectionStatus || '')}`}>
+                                                            <span className="h-2 w-2 rounded-full bg-current" />
+                                                            {seller.primaryConnection?.instanceName || 'Sem conexao principal'}
+                                                        </span>
+                                                        <span className="inline-flex items-center gap-2 rounded-full border border-black/[0.06] bg-white/80 px-3 py-1 dark:border-white/[0.08] dark:bg-white/[0.04]">
+                                                            {seller.hasAiConnected ? 'IA conectada' : 'Sem IA vinculada'}
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
 
-                                            {/* Presets */}
-                                            {!showHoursForm && (
-                                                <div className="flex gap-2 flex-wrap mb-3">
-                                                    {PRESETS.map(p => (
-                                                        <button key={p.label} onClick={() => applyPreset(p)}
-                                                            className="text-xs px-3 py-1.5 rounded-lg border border-border hover:border-primary/40 hover:bg-primary/5 text-text-secondary hover:text-primary transition-all font-medium flex items-center gap-1.5">
-                                                            <Zap size={11} /> {p.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            {/* Quick form */}
-                                            {showHoursForm && (
-                                                <div className="bg-surface border border-border rounded-xl p-4 space-y-3 mb-3">
-                                                    {/* Day chips */}
-                                                    <div>
-                                                        <p className="text-xs text-text-muted mb-2">Selecione os dias</p>
-                                                        <div className="flex gap-2 flex-wrap">
-                                                            {DIAS.map((d, i) => (
-                                                                <button
-                                                                    key={i}
-                                                                    onClick={() => setSelectedDias(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i])}
-                                                                    className={`w-12 h-10 rounded-xl text-xs font-bold border transition-all ${selectedDias.includes(i) ? 'bg-primary text-white border-primary shadow-md shadow-primary/25' : 'border-border text-text-secondary hover:border-primary/40'}`}
-                                                                >
-                                                                    {d}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                    {/* Time + interval */}
-                                                    <div className="flex gap-3 items-center flex-wrap">
-                                                        <div>
-                                                            <p className="text-[10px] text-text-muted mb-1">Início</p>
-                                                            <input type="time" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary/50"
-                                                                value={qHoraInicio} onChange={e => setQHoraInicio(e.target.value)} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-[10px] text-text-muted mb-1">Fim</p>
-                                                            <input type="time" className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary/50"
-                                                                value={qHoraFim} onChange={e => setQHoraFim(e.target.value)} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-[10px] text-text-muted mb-1">Intervalo</p>
-                                                            <select className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none"
-                                                                value={qIntervalo} onChange={e => setQIntervalo(Number(e.target.value))}>
-                                                                <option value={15}>15 min</option>
-                                                                <option value={30}>30 min</option>
-                                                                <option value={60}>60 min</option>
-                                                            </select>
-                                                        </div>
-                                                        <div className="self-end flex gap-2">
-                                                            <button onClick={addHours} disabled={loading || selectedDias.length === 0}
-                                                                className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-primary/20">
-                                                                {loading ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                                                                Salvar {selectedDias.length > 0 ? `(${selectedDias.length} dias)` : ''}
-                                                            </button>
-                                                            <button onClick={() => { setShowHoursForm(false); setSelectedDias([]); }}
-                                                                className="text-xs text-text-muted hover:text-text-primary px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-                                                                Cancelar
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Existing hours */}
-                                            {disponibilidades.length === 0 ? (
-                                                <p className="text-xs text-text-muted text-center py-4">Nenhum horário definido. Use um preset acima.</p>
-                                            ) : (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {disponibilidades.map(d => (
-                                                        <div key={d.id} className="flex items-center gap-2 px-3 py-1.5 bg-primary/5 border border-primary/15 rounded-xl text-xs text-text-primary group">
-                                                            <span className="font-bold text-primary">{DIAS[d.dia_semana]}</span>
-                                                            <span>{d.hora_inicio}–{d.hora_fim}</span>
-                                                            <span className="text-text-muted">({d.intervalo}min)</span>
-                                                            <button onClick={() => deleteDisp(d.id)}
-                                                                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-500 transition-all ml-1">
-                                                                <X size={12} />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                            <div className="rounded-[20px] border border-black/[0.06] bg-[#F8F8FA] px-4 py-3 text-right dark:border-white/[0.08] dark:bg-[#111214]">
+                                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">Score operacional</p>
+                                                <p className="mt-1 text-2xl font-display font-bold tracking-tight text-text-primary">{seller.qualityScore}</p>
+                                            </div>
                                         </div>
 
-                                        {/* Bloqueios */}
-                                        <div>
-                                            <div className="flex items-center justify-between mb-3">
-                                                <h4 className="text-sm font-bold text-text-primary flex items-center gap-2"><Ban size={14} className="text-red-500" /> Bloqueios</h4>
-                                                <button onClick={() => setShowAddBloqueio(f => !f)}
-                                                    className="flex items-center gap-1.5 text-xs text-red-500 font-semibold hover:text-red-400 transition-colors">
-                                                    <Plus size={13} /> Bloquear período
-                                                </button>
+                                        <div className="mt-6 grid gap-3 sm:grid-cols-4">
+                                            <MetricBlock label="Conversas ativas" value={seller.metrics.activeConversations} />
+                                            <MetricBlock label="Sem resposta" value={seller.metrics.unansweredLeads} muted={seller.metrics.unansweredLeads > 0} />
+                                            <MetricBlock label="Tempo medio" value={seller.metrics.avgResponseTimeLabel} />
+                                            <MetricBlock label="Taxa de resposta" value={formatPercent(seller.metrics.responseRate)} />
+                                        </div>
+
+                                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                                            <SecondaryMetric label="Leads recebidos" value={seller.metrics.leadsReceived} />
+                                            <SecondaryMetric label="Conversao" value={formatPercent(seller.metrics.conversionRate)} />
+                                            <SecondaryMetric label="Follow-ups pendentes" value={seller.metrics.pendingFollowups} />
+                                        </div>
+
+                                        <div className="mt-5 rounded-[24px] border border-black/[0.06] bg-[#F8F8FA] p-4 dark:border-white/[0.08] dark:bg-[#111214]">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">Leitura rapida</p>
+                                                    <p className="mt-2 text-sm font-semibold text-text-primary">
+                                                        {seller.quality.criticalPoints[0] || seller.quality.strengths[0] || 'Operacao estavel no periodo'}
+                                                    </p>
+                                                    <p className="mt-1 text-sm leading-6 text-text-secondary">
+                                                        {seller.quality.criticalPoints.length > 0
+                                                            ? 'Abra o perfil para revisar gargalos, leads em risco e abrir as conversas desse vendedor.'
+                                                            : 'O vendedor esta operando com boa leitura de resposta, follow-up e controle das linhas conectadas.'}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-2xl border border-primary/15 bg-primary/[0.08] p-2 text-primary">
+                                                    <MessageSquare size={16} />
+                                                </div>
                                             </div>
-                                            {showAddBloqueio && (
-                                                <div className="bg-red-500/5 border border-red-500/15 rounded-xl p-4 space-y-3 mb-3">
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div>
-                                                            <label className="text-xs text-text-muted block mb-1">Início</label>
-                                                            <input type="datetime-local" className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none"
-                                                                value={newBloqueio.dataInicio} onChange={e => setNewBloqueio(p => ({ ...p, dataInicio: e.target.value }))} />
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-xs text-text-muted block mb-1">Fim</label>
-                                                            <input type="datetime-local" className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none"
-                                                                value={newBloqueio.dataFim} onChange={e => setNewBloqueio(p => ({ ...p, dataFim: e.target.value }))} />
-                                                        </div>
-                                                    </div>
-                                                    <input className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none" placeholder="Motivo (opcional)"
-                                                        value={newBloqueio.motivo} onChange={e => setNewBloqueio(p => ({ ...p, motivo: e.target.value }))} />
-                                                    <div className="flex gap-2">
-                                                        <button onClick={addBloqueio} disabled={loading}
-                                                            className="bg-red-500 hover:bg-red-400 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors">
-                                                            Bloquear
-                                                        </button>
-                                                        <button onClick={() => setShowAddBloqueio(false)}
-                                                            className="text-xs text-text-muted hover:text-text-primary px-3 py-2 rounded-lg hover:bg-white/5 transition-colors">
-                                                            Cancelar
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {bloqueios.length === 0 ? (
-                                                <p className="text-xs text-text-muted text-center py-3">Sem bloqueios cadastrados.</p>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    {bloqueios.map(b => (
-                                                        <div key={b.id} className="flex items-center justify-between px-3 py-2 bg-red-500/5 border border-red-500/15 rounded-xl group">
-                                                            <div className="text-xs text-text-secondary">
-                                                                <span className="font-medium text-red-400">{new Date(b.data_inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                                                                <span className="mx-2 text-text-muted">→</span>
-                                                                <span>{new Date(b.data_fim).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
-                                                                {b.motivo && <span className="ml-3 text-text-muted">· {b.motivo}</span>}
-                                                            </div>
-                                                            <button onClick={() => deleteBloqueio(b.id)}
-                                                                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-500 transition-all">
-                                                                <X size={14} />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
-                                )}
-                            </div>
-                        );
-                    })}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
+
+            <SellerFormModal
+                isOpen={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                onSaved={() => fetchSellers()}
+            />
+
+            <SellerConnectionModal
+                isOpen={showLinkModal}
+                onClose={() => setShowLinkModal(false)}
+                onLinked={() => fetchSellers()}
+                sellers={items}
+            />
+        </>
+    );
+}
+
+function MetricBlock({
+    label,
+    value,
+    muted = false,
+}: {
+    label: string;
+    value: string | number;
+    muted?: boolean;
+}) {
+    return (
+        <div className="rounded-[24px] border border-black/[0.06] bg-[#F8F8FA] p-4 dark:border-white/[0.08] dark:bg-[#111214]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">{label}</p>
+            <p className={`mt-2 text-2xl font-display font-bold tracking-tight ${muted ? 'text-amber-600 dark:text-amber-300' : 'text-text-primary'}`}>
+                {value}
+            </p>
+        </div>
+    );
+}
+
+function SecondaryMetric({
+    label,
+    value,
+}: {
+    label: string;
+    value: string | number;
+}) {
+    return (
+        <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.82] px-4 py-3 dark:border-white/[0.08] dark:bg-white/[0.04]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">{label}</p>
+            <p className="mt-2 text-base font-semibold text-text-primary">{value}</p>
         </div>
     );
 }
