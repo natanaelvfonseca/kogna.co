@@ -5,7 +5,7 @@ type AppEnv = {
 };
 
 function normalizeBaseUrl(value: string | undefined) {
-  const fallback = "http://localhost:8080/api";
+  const fallback = import.meta.env.PROD ? "/api" : "http://localhost:8080/api";
   return (value || fallback).replace(/\/+$/, "");
 }
 

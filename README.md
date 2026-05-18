@@ -76,6 +76,14 @@ npm --prefix apps/kogna-escolas install --no-package-lock
 npm run schools:dev
 ```
 
+Build de produção em `ia.kogna.co`:
+
+```bash
+npm run build
+```
+
+O comando acima publica o frontend Lovable da pasta `apps/kogna-escolas` em `dist/`, mantendo o backend Express em `/api`.
+
 Rodar backend real:
 
 ```bash
