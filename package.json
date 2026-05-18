@@ -8,6 +8,10 @@
         "build": "tsc && vite build",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview",
+        "schools:dev": "npm --prefix apps/kogna-escolas run dev",
+        "schools:build": "npm --prefix apps/kogna-escolas run build",
+        "schools:preview": "npm --prefix apps/kogna-escolas run preview",
+        "schools:lint": "npm --prefix apps/kogna-escolas run lint",
         "db:init": "node init_db.js",
         "dev:full": "concurrently \"npm run dev\" \"node server.js\"",
         "dev:all": "concurrently \"node server.js\" \"npm run dev\" \"ngrok http 3000\""

@@ -56,3 +56,36 @@ Kogna is a premium SaaS application designed for high-conversion leads managemen
 ## 📄 License
 
 This project is licensed under the MIT License.
+
+## Kogna Escolas Frontend
+
+O frontend Lovable aprovado da Kogna Escolas está em `apps/kogna-escolas`.
+
+Ele é o app visual oficial da vertical de escolas profissionalizantes e consome o backend real deste repositório:
+
+- `POST /api/login`
+- `GET /api/me`
+- `GET /api/schools`
+- `GET /api/schools/:schoolId/dashboard`
+- rotas escolares de leads, pipeline, alertas e tarefas.
+
+Rodar frontend Kogna Escolas:
+
+```bash
+npm --prefix apps/kogna-escolas install --no-package-lock
+npm run schools:dev
+```
+
+Rodar backend real:
+
+```bash
+node server.js
+```
+
+Variáveis do frontend:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8080/api
+VITE_APP_NAME=Kogna Escolas
+VITE_APP_ENV=development
+```
