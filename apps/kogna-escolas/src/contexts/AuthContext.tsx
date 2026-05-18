@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { authApi } from "@/services/api/authApi";
 import {
   clearStoredAuth,
@@ -30,9 +30,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<ApiUser | null>(() => getStoredUser<ApiUser>());
   const [status, setStatus] = useState<AuthStatus>(() => {
     const storedToken = getStoredToken();
-    return storedToken && !isTokenExpired(storedToken) ? "loading" : "unauthenticated";
+    const storedUser = getStoredUser<ApiUser>();
+    if (!storedToken || isTokenExpired(storedToken)) return "unauthenticated";
+    return storedUser ? "authenticated" : "loading";
   });
   const [error, setError] = useState<string | null>(null);
+  const didInitialRefresh = useRef(false);
 
   const logout = useCallback(() => {
     clearStoredAuth();
@@ -84,6 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (didInitialRefresh.current) return;
+    didInitialRefresh.current = true;
     void refreshUser();
   }, [refreshUser]);
 

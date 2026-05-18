@@ -3,6 +3,6 @@ import { apiRequest } from "./client";
 
 export const dashboardApi = {
   getDashboard(schoolId: string) {
-    return apiRequest<ApiDashboard>(`/schools/${schoolId}/dashboard`);
+    return apiRequest<ApiDashboard>(`/schools/${schoolId}/dashboard`, { timeoutMs: 10000 });
   },
 };

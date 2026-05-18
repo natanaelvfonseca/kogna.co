@@ -3,6 +3,6 @@ import { apiRequest } from "./client";
 
 export const salesTeamApi = {
   getSalespeople(schoolId: string) {
-    return apiRequest<ApiSalesperson[]>(`/schools/${schoolId}/salespeople`);
+    return apiRequest<ApiSalesperson[]>(`/schools/${schoolId}/salespeople`, { timeoutMs: 10000 });
   },
 };

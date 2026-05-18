@@ -27,7 +27,10 @@ function buildUrl(path: string) {
 async function parseResponse(response: Response) {
   const contentType = response.headers.get("content-type") || "";
   if (response.status === 204) return null;
-  if (contentType.includes("application/json")) return response.json();
+  if (contentType.includes("application/json")) {
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  }
   return response.text();
 }
 

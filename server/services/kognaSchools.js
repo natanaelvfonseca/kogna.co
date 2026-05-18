@@ -41,6 +41,12 @@ const ALERT_TYPES = new Set([
   "conversa_com_risco_alto",
 ]);
 
+function shouldAutoMigrateSchoolsSchema() {
+  if (process.env.KOGNA_SCHOOLS_AUTO_MIGRATE === "true") return true;
+  if (process.env.KOGNA_SCHOOLS_AUTO_MIGRATE === "false") return false;
+  return process.env.NODE_ENV !== "production" && !process.env.VERCEL;
+}
+
 function badRequest(message) {
   const error = new Error(message);
   error.status = 400;
@@ -945,9 +951,13 @@ async function buildDashboard(pool, schoolId) {
 }
 
 export function registerKognaSchoolsRoutes({ app, pool, verifyJWT, log = console.log }) {
-  const ready = ensureKognaSchoolsSchema(pool, log).catch((error) => {
-    log(`[SCHOOLS] schema startup error: ${error.message}`);
-  });
+  const ready = shouldAutoMigrateSchoolsSchema()
+    ? ensureKognaSchoolsSchema(pool, log).catch((error) => {
+      log(`[SCHOOLS] schema startup error: ${error.message}`);
+    })
+    : Promise.resolve().then(() => {
+      log("[SCHOOLS] runtime schema verification skipped. Set KOGNA_SCHOOLS_AUTO_MIGRATE=true to enable it.");
+    });
   kognaSchoolsReady = ready;
   const withReady = (fn) => handleRoute(async (req, res) => {
     await ready;
