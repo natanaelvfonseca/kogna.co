@@ -40,6 +40,20 @@ import { ReferralRedirect } from './pages/partners/ReferralRedirect';
 import { GuidedTourProvider } from './components/guided-tour/GuidedTourProvider';
 import { KognaOfferPage } from './pages/marketing/KognaOfferPage';
 import { MetaWhatsappReportOfferPage } from './pages/marketing/MetaWhatsappReportOfferPage';
+import {
+    CentralMelPage,
+    CoursesOffersPage,
+    PaymentDataPage,
+    SalesTeamPage,
+    SchoolAlertsPage,
+    SchoolConversationsPage,
+    SchoolGoalsPage,
+    SchoolLeadsPage,
+    SchoolOnboardingPage,
+    SchoolPipelinePage,
+    SchoolSettingsPage,
+    SchoolTasksPage,
+} from './pages/schools/KognaSchools';
 
 declare global {
     interface Window {
@@ -94,8 +108,20 @@ function App() {
                                     </OnboardingGuard>
                                 </ProtectedRoute>
                             }>
-                                <Route index element={<Navigate to="/dashboard/revenue-metrics" replace />} />
-                                <Route path="dashboard" element={<Navigate to="/dashboard/revenue-metrics" replace />} />
+                                <Route index element={<Navigate to="/mel" replace />} />
+                                <Route path="dashboard" element={<Navigate to="/mel" replace />} />
+                                <Route path="mel" element={<CentralMelPage />} />
+                                <Route path="school-onboarding" element={<SchoolOnboardingPage />} />
+                                <Route path="courses-offers" element={<CoursesOffersPage />} />
+                                <Route path="school-payment-data" element={<PaymentDataPage />} />
+                                <Route path="sales-team" element={<SalesTeamPage />} />
+                                <Route path="school-pipeline" element={<SchoolPipelinePage />} />
+                                <Route path="school-leads" element={<SchoolLeadsPage />} />
+                                <Route path="school-conversations" element={<SchoolConversationsPage />} />
+                                <Route path="school-tasks" element={<SchoolTasksPage />} />
+                                <Route path="school-alerts" element={<SchoolAlertsPage />} />
+                                <Route path="school-goals" element={<SchoolGoalsPage />} />
+                                <Route path="school-settings" element={<SchoolSettingsPage />} />
                                 <Route path="dashboard/revenue-metrics" element={<RevenueMetrics />} />
                                 <Route path="whatsapp" element={<WhatsAppConnection />} />
                                 <Route path="crm" element={<CRM />} />

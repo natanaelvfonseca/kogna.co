@@ -15,6 +15,7 @@ temp
 
 # Backups and Debugging
 *.sql
+!prisma/migrations/**/*.sql
 admin_verification.txt
 check_*.js
 debug_*.js

@@ -99,7 +99,6 @@ const useAPI = <T,>(url: string, token: string | null, deps: unknown[] = []) => 
             .then(r => r.ok ? r.json() : null)
             .then(d => { setData(d); setLoading(false); })
             .catch(() => setLoading(false));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token, ...deps]);
     return { data, loading };
 };

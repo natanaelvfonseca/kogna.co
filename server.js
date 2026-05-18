@@ -39,6 +39,7 @@ import {
   normalizeBrazilPhoneDigits,
   normalizeRemoteJid,
 } from "./server/services/sellerPerformance.js";
+import { registerKognaSchoolsRoutes } from "./server/services/kognaSchools.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -5766,6 +5767,8 @@ app.use("/chat", evolutionProxy);
 app.use("/message", evolutionProxy);
 app.use("/group", evolutionProxy);
 app.use("/instance", evolutionProxy);
+
+registerKognaSchoolsRoutes({ app, pool, verifyJWT, log });
 
 // --- LIVE CHAT ROUTES ---
 

@@ -16,7 +16,13 @@ import {
     RotateCcw,
     BarChart2,
     Bell,
-    MonitorPlay
+    MonitorPlay,
+    GraduationCap,
+    ClipboardList,
+    WalletCards,
+    KanbanSquare,
+    AlertTriangle,
+    Target
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useState, useRef, useEffect } from 'react';
@@ -25,6 +31,18 @@ import { BrandLogo } from '../branding/BrandLogo';
 import { useGuidedTour } from '../guided-tour/GuidedTourProvider';
 
 const menuItems = [
+    { icon: BrainCircuit, label: 'Central da Mel', path: '/mel' },
+    { icon: ClipboardList, label: 'Onboarding da Escola', path: '/school-onboarding' },
+    { icon: GraduationCap, label: 'Cursos e Ofertas', path: '/courses-offers' },
+    { icon: WalletCards, label: 'Dados Financeiros', path: '/school-payment-data' },
+    { icon: UserCog, label: 'Equipe Comercial', path: '/sales-team' },
+    { icon: KanbanSquare, label: 'Pipeline Comercial', path: '/school-pipeline' },
+    { icon: Users, label: 'Leads', path: '/school-leads' },
+    { icon: MessagesSquare, label: 'Conversas', path: '/school-conversations' },
+    { icon: CalendarDays, label: 'Tarefas e Follow-ups', path: '/school-tasks' },
+    { icon: AlertTriangle, label: 'Alertas', path: '/school-alerts' },
+    { icon: Target, label: 'Metas', path: '/school-goals' },
+    { icon: Settings, label: 'Config. da Escola', path: '/school-settings' },
     { icon: BarChart2, label: 'Métricas de Receita', path: '/dashboard/revenue-metrics' },
     { icon: Users, label: 'Funil de Vendas', path: '/crm' },
     { icon: BrainCircuit, label: 'Agentes de IA', path: '/brain' },

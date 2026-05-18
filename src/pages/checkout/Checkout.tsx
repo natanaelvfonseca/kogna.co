@@ -447,7 +447,6 @@ export function Checkout() {
             pollingIntervalRef.current = null;
             clearTimeout(watchdogTimeout);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paymentStatus, paymentResult?.id]);
 
 
