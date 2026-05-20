@@ -25,15 +25,30 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function getInitialAuthState() {
+  const storedToken = getStoredToken();
+
+  if (!storedToken || isTokenExpired(storedToken)) {
+    clearStoredAuth();
+    return {
+      status: "unauthenticated" as AuthStatus,
+      token: null,
+      user: null,
+    };
+  }
+
+  return {
+    status: "loading" as AuthStatus,
+    token: storedToken,
+    user: getStoredUser<ApiUser>(),
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => getStoredToken());
-  const [user, setUser] = useState<ApiUser | null>(() => getStoredUser<ApiUser>());
-  const [status, setStatus] = useState<AuthStatus>(() => {
-    const storedToken = getStoredToken();
-    const storedUser = getStoredUser<ApiUser>();
-    if (!storedToken || isTokenExpired(storedToken)) return "unauthenticated";
-    return storedUser ? "authenticated" : "loading";
-  });
+  const [initialAuth] = useState(getInitialAuthState);
+  const [token, setToken] = useState<string | null>(initialAuth.token);
+  const [user, setUser] = useState<ApiUser | null>(initialAuth.user);
+  const [status, setStatus] = useState<AuthStatus>(initialAuth.status);
   const [error, setError] = useState<string | null>(null);
   const didInitialRefresh = useRef(false);
 

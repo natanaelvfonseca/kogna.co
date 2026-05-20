@@ -39,17 +39,24 @@ export function setStoredUser(user: unknown) {
   window.localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+function decodeJwtPayload(token: string) {
+  const [, payload] = token.split(".");
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return JSON.parse(window.atob(padded)) as { exp?: number };
+  } catch {
+    return null;
+  }
+}
+
 export function isTokenExpired(token: string | null) {
   if (!token || typeof window === "undefined") return false;
 
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return false;
-    const decoded = JSON.parse(window.atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as {
-      exp?: number;
-    };
-    return Boolean(decoded.exp && decoded.exp * 1000 <= Date.now());
-  } catch {
-    return false;
-  }
+  const decoded = decodeJwtPayload(token);
+  if (!decoded?.exp) return true;
+
+  return decoded.exp * 1000 <= Date.now();
 }

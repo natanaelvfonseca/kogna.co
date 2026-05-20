@@ -10,9 +10,10 @@ export const Route = createFileRoute("/")({
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { error, isAuthenticated, login, status } = useAuth();
+  const { error, isAuthenticated, login } = useAuth();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -22,21 +23,23 @@ function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       await login(email, senha);
       await navigate({ to: "/central" });
     } catch {
+      setIsSubmitting(false);
       return;
     }
   };
 
-  const isLoading = status === "loading";
+  const isLoading = isSubmitting;
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
       <div className="hidden lg:flex flex-col justify-between p-12 bg-sidebar text-sidebar-foreground relative overflow-hidden">
-        <div className="absolute -top-24 -right-24 h-96 w-96 rounded-full bg-gradient-mel opacity-30 blur-3xl" />
-        <div className="absolute bottom-0 -left-24 h-72 w-72 rounded-full bg-[var(--info)] opacity-20 blur-3xl" />
+        <div className="absolute -top-24 -right-24 h-96 w-96 rounded-full bg-gradient-mel opacity-20" />
+        <div className="absolute bottom-0 -left-24 h-72 w-72 rounded-full bg-[var(--info)] opacity-10" />
 
         <div className="relative">
           <div className="flex items-center gap-2">
