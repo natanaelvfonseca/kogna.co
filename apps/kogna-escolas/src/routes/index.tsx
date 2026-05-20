@@ -11,8 +11,6 @@ export const Route = createFileRoute("/")({
 function LoginPage() {
   const navigate = useNavigate();
   const { error, isAuthenticated, login } = useAuth();
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -23,6 +21,10 @@ function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+    const email = String(formData.get("email") || "").trim();
+    const senha = String(formData.get("senha") || "");
+
     setIsSubmitting(true);
     try {
       await login(email, senha);
@@ -94,8 +96,7 @@ function LoginPage() {
             <label className="block text-sm">
               <span className="text-foreground/80">E-mail</span>
               <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                name="email"
                 type="email"
                 autoComplete="email"
                 required
@@ -105,8 +106,7 @@ function LoginPage() {
             <label className="block text-sm">
               <span className="text-foreground/80">Senha</span>
               <input
-                value={senha}
-                onChange={(e) => setSenha(e.target.value)}
+                name="senha"
                 type="password"
                 autoComplete="current-password"
                 required
